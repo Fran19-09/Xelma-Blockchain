@@ -300,6 +300,164 @@ We take security seriously. The contract has undergone comprehensive hardening:
 
 ---
 
+## 📡 Event Schema
+
+All major state transitions emit standardized events for indexers and frontend consumers. Events follow a consistent format: `(topic_1, topic_2)` → `(payload...)`.
+
+### Event Types:
+
+#### 1. Round Created
+Emitted when admin creates a new prediction round.
+
+```rust
+Topic: ("round", "created")
+Payload: (
+  round_id: u64,           // Unique round identifier
+  start_price: u128,       // Initial XLM price (4 decimals: 2297 = $0.2297)
+  start_ledger: u32,       // Ledger when round begins
+  bet_end_ledger: u32,     // Last ledger to place bets
+  end_ledger: u32,         // Ledger when round can be resolved
+  mode: u32                // 0 = Up/Down, 1 = Precision
+)
+```
+
+**Use Case**: Index new rounds, display active games, trigger notifications.
+
+#### 2. Bet Placed (Up/Down Mode)
+Emitted when user places a bet in Up/Down mode.
+
+```rust
+Topic: ("bet", "placed")
+Payload: (
+  user: Address,           // User who placed the bet
+  round_id: u64,          // Round identifier
+  amount: i128,           // Bet amount in stroops (1 vXLM = 10^7 stroops)
+  side: u32               // 0 = Up, 1 = Down
+)
+```
+
+**Use Case**: Track user bets, calculate pool sizes, display live betting activity.
+
+#### 3. Price Prediction (Precision Mode)
+Emitted when user submits a price prediction in Precision/Legends mode.
+
+```rust
+Topic: ("predict", "price")
+Payload: (
+  user: Address,           // User who made prediction
+  round_id: u64,          // Round identifier
+  predicted_price: u128,  // Predicted price (4 decimals: 2297 = $0.2297)
+  amount: i128            // Stake amount in stroops
+)
+```
+
+**Use Case**: Track predictions, show leaderboard before resolution, display user guesses.
+
+#### 4. Round Resolved
+Emitted when oracle resolves a round with final price.
+
+```rust
+Topic: ("round", "resolved")
+Payload: (
+  round_id: u64,          // Round identifier
+  final_price: u128,      // Actual final price (4 decimals)
+  mode: u32               // 0 = Up/Down, 1 = Precision
+)
+```
+
+**Use Case**: Trigger winner calculations, update leaderboards, notify users of results.
+
+#### 5. Winnings Claimed
+Emitted when user claims their pending winnings.
+
+```rust
+Topic: ("claim", "winnings")
+Payload: (
+  user: Address,          // User claiming winnings
+  amount: i128            // Amount claimed in stroops
+)
+```
+
+**Use Case**: Track payouts, display claim history, calculate platform volume.
+
+#### 6. Windows Updated
+Emitted when admin updates bet/run window durations.
+
+```rust
+Topic: ("windows", "updated")
+Payload: (
+  bet_window_ledgers: u32,  // Number of ledgers for betting phase
+  run_window_ledgers: u32   // Total ledgers until resolution
+)
+```
+
+**Use Case**: Update frontend timers, recalculate round schedules.
+
+#### 7. Initial Mint
+Emitted when new user mints their first 1000 vXLM.
+
+```rust
+Topic: ("mint", "initial")
+Payload: (
+  user: Address,          // New user address
+  amount: i128            // Minted amount (1000 * 10^7 stroops)
+)
+```
+
+**Use Case**: Track new users, display welcome messages, analytics.
+
+### Event Consumption
+
+#### TypeScript Example (Frontend/Indexer):
+```typescript
+import { SorobanRpc } from '@stellar/stellar-sdk';
+
+const server = new SorobanRpc.Server('https://soroban-testnet.stellar.org');
+
+// Get transaction events
+const txResult = await server.getTransaction(txHash);
+const events = txResult.events;
+
+// Parse round created event
+const roundCreatedEvent = events.find(e => 
+  e.topic[0] === 'round' && e.topic[1] === 'created'
+);
+
+if (roundCreatedEvent) {
+  const [roundId, startPrice, startLedger, betEnd, endLedger, mode] = roundCreatedEvent.value;
+  console.log(`New round ${roundId} created at price ${startPrice}`);
+}
+```
+
+#### Event Subscription Pattern:
+```typescript
+// Poll for new rounds
+async function watchForNewRounds(contractId: string) {
+  const latestLedger = await server.getLatestLedger();
+  
+  const events = await server.getEvents({
+    startLedger: latestLedger.sequence - 100,
+    filters: [{
+      type: 'contract',
+      contractIds: [contractId],
+      topics: [['round'], ['created']]
+    }]
+  });
+  
+  return events.events.map(parseRoundCreatedEvent);
+}
+```
+
+### Indexer Implementation Notes:
+
+1. **Event Ordering**: Events are emitted in transaction order within each ledger.
+2. **Uniqueness**: Use `(round_id, user, event_type)` for deduplication.
+3. **Decimal Handling**: All prices use 4 decimal places (divide by 10000 for display).
+4. **Stroops**: All amounts are in stroops (1 vXLM = 10^7 stroops).
+5. **Address Format**: Stellar addresses are 56-character G-prefixed strings.
+
+---
+
 ## 📊 Contract Functions
 
 ### User Functions:

@@ -4,8 +4,9 @@ use crate::contract::{VirtualTokenContract, VirtualTokenContractClient};
 use crate::errors::ContractError;
 use crate::types::BetSide;
 use soroban_sdk::{
-    testutils::{Address as _, Ledger as _},
-    Address, Env,
+    symbol_short,
+    testutils::{Address as _, Events, Ledger as _},
+    Address, Env, TryIntoVal,
 };
 
 #[test]
@@ -158,4 +159,87 @@ fn test_get_user_position_no_bet() {
     // No position should return None
     let position = client.get_user_position(&user);
     assert_eq!(position, None);
+}
+
+#[test]
+fn test_bet_placed_event_payload() {
+    let env = Env::default();
+    let contract_id = env.register(VirtualTokenContract, ());
+    let client = VirtualTokenContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    env.mock_all_auths();
+
+    client.initialize(&admin, &oracle);
+    client.mint_initial(&user);
+    client.create_round(&1_0000000, &None);
+
+    // Place bet
+    client.place_bet(&user, &100_0000000, &BetSide::Up);
+
+    // Verify bet placed event was emitted
+    let events = env.events().all();
+    let bet_event = events.iter().find(|e| {
+        let (_contract, topics, _data) = e;
+        topics.len() == 2
+            && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("bet"))
+            && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("placed"))
+    });
+
+    assert!(bet_event.is_some(), "Bet placed event should be emitted");
+}
+
+#[test]
+fn test_multiple_bets_emit_separate_events() {
+    let env = Env::default();
+    let contract_id = env.register(VirtualTokenContract, ());
+    let client = VirtualTokenContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+    let user3 = Address::generate(&env);
+
+    env.mock_all_auths();
+
+    client.initialize(&admin, &oracle);
+    client.mint_initial(&user1);
+    client.mint_initial(&user2);
+    client.mint_initial(&user3);
+    client.create_round(&1_0000000, &None);
+
+    // Place multiple bets
+    client.place_bet(&user1, &100_0000000, &BetSide::Up);
+    let events = env.events().all();
+    let bet_event = events.iter().any(|e| {
+        let (_contract, topics, _data) = e;
+        topics.len() == 2
+            && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("bet"))
+            && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("placed"))
+    });
+    assert!(bet_event, "First bet should emit event");
+
+    client.place_bet(&user2, &150_0000000, &BetSide::Down);
+    let events = env.events().all();
+    let bet_event = events.iter().any(|e| {
+        let (_contract, topics, _data) = e;
+        topics.len() == 2
+            && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("bet"))
+            && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("placed"))
+    });
+    assert!(bet_event, "Second bet should emit event");
+
+    client.place_bet(&user3, &200_0000000, &BetSide::Up);
+    let events = env.events().all();
+    let bet_event = events.iter().any(|e| {
+        let (_contract, topics, _data) = e;
+        topics.len() == 2
+            && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("bet"))
+            && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("placed"))
+    });
+    assert!(bet_event, "Third bet should emit event");
 }

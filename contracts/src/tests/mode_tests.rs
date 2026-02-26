@@ -4,8 +4,9 @@ use crate::contract::{VirtualTokenContract, VirtualTokenContractClient};
 use crate::errors::ContractError;
 use crate::types::{BetSide, OraclePayload, RoundMode};
 use soroban_sdk::{
+    symbol_short,
     testutils::{Address as _, Events, Ledger as _},
-    Address, Env,
+    Address, Env, TryIntoVal,
 };
 
 #[test]
@@ -512,14 +513,284 @@ fn test_predict_price_event_emission() {
 
     // Create Precision round at ledger 0
     client.create_round(&1_0000000, &Some(1));
+    let _round = client.get_active_round().unwrap();
 
     // Place prediction
     client.predict_price(&user, &2297, &100_0000000);
 
     // Verify event was emitted
     let events = env.events().all();
+    assert!(!events.is_empty());
 
-    // Should have events (at least the prediction event)
-    assert!(!events.is_empty());
-    assert!(!events.is_empty());
+    // Find the prediction event
+    // Event format: (contract_address, topics_vec, data_val)
+    // Topics should contain ("predict", "price")
+    let prediction_event = events.iter().find(|e| {
+        let (_contract, topics, _data) = e;
+        topics.len() == 2
+            && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("predict"))
+            && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("price"))
+    });
+
+    assert!(prediction_event.is_some(), "Prediction event not found");
+}
+
+#[test]
+fn test_all_events_for_updown_round() {
+    let env = Env::default();
+    let contract_id = env.register(VirtualTokenContract, ());
+    let client = VirtualTokenContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+
+    env.mock_all_auths();
+
+    // 1. Initialize (no event expected)
+    client.initialize(&admin, &oracle);
+
+    // 2. Mint initial tokens - should emit mint event
+    client.mint_initial(&user1);
+    let events = env.events().all();
+    let mint_event = events.iter().find(|e| {
+        let (_contract, topics, _data) = e;
+        topics.len() == 2
+            && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("mint"))
+            && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("initial"))
+    });
+    assert!(mint_event.is_some(), "First mint should emit event");
+
+    client.mint_initial(&user2);
+    let events = env.events().all();
+    let mint_event = events.iter().find(|e| {
+        let (_contract, topics, _data) = e;
+        topics.len() == 2
+            && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("mint"))
+            && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("initial"))
+    });
+    assert!(mint_event.is_some(), "Second mint should emit event");
+
+    // 3. Create round - should emit round created event
+    client.create_round(&1_0000000, &Some(0));
+
+    let events = env.events().all();
+    let round_event = events.iter().find(|e| {
+        let (_contract, topics, _data) = e;
+        topics.len() == 2
+            && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("round"))
+            && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("created"))
+    });
+    assert!(
+        round_event.is_some(),
+        "Round created event should be emitted"
+    );
+
+    // 4. Place bets - should emit bet placed events
+    client.place_bet(&user1, &100_0000000, &BetSide::Up);
+    let events = env.events().all();
+    let bet_event = events.iter().find(|e| {
+        let (_contract, topics, _data) = e;
+        topics.len() == 2
+            && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("bet"))
+            && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("placed"))
+    });
+    assert!(bet_event.is_some(), "First bet should emit event");
+
+    client.place_bet(&user2, &150_0000000, &BetSide::Down);
+    let events = env.events().all();
+    let bet_event = events.iter().find(|e| {
+        let (_contract, topics, _data) = e;
+        topics.len() == 2
+            && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("bet"))
+            && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("placed"))
+    });
+    assert!(bet_event.is_some(), "Second bet should emit event");
+
+    // 5. Resolve round - should emit round resolved event
+    let round = client.get_active_round().unwrap();
+    env.ledger().with_mut(|li| {
+        li.sequence_number = round.end_ledger;
+    });
+
+    client.resolve_round(&OraclePayload {
+        price: 1_5000000, // Price went up
+        timestamp: env.ledger().timestamp(),
+        round_id: round.start_ledger,
+    });
+
+    let events = env.events().all();
+    let resolved_event = events.iter().find(|e| {
+        let (_contract, topics, _data) = e;
+        topics.len() == 2
+            && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("round"))
+            && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("resolved"))
+    });
+    assert!(
+        resolved_event.is_some(),
+        "Round resolved event should be emitted"
+    );
+
+    // 6. Claim winnings - should emit claim event
+    client.claim_winnings(&user1);
+
+    let events = env.events().all();
+    let claim_event = events.iter().find(|e| {
+        let (_contract, topics, _data) = e;
+        topics.len() == 2
+            && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("claim"))
+            && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("winnings"))
+    });
+    assert!(
+        claim_event.is_some(),
+        "Claim winnings event should be emitted"
+    );
+}
+
+#[test]
+fn test_all_events_for_precision_round() {
+    let env = Env::default();
+    let contract_id = env.register(VirtualTokenContract, ());
+    let client = VirtualTokenContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+    let user3 = Address::generate(&env);
+
+    env.mock_all_auths();
+
+    client.initialize(&admin, &oracle);
+    client.mint_initial(&user1);
+    env.events().all();
+    client.mint_initial(&user2);
+    env.events().all();
+    client.mint_initial(&user3);
+    env.events().all();
+
+    // Create Precision mode round
+    client.create_round(&2_0000000, &Some(1));
+
+    let events = env.events().all();
+    let round_event = events.iter().find(|e| {
+        let (_contract, topics, _data) = e;
+        topics.len() == 2
+            && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("round"))
+            && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("created"))
+    });
+    assert!(
+        round_event.is_some(),
+        "Round created event should be emitted"
+    );
+
+    // Place predictions - should emit prediction events
+    client.predict_price(&user1, &2_2000000, &100_0000000);
+    let events = env.events().all();
+    let prediction_event = events.iter().find(|e| {
+        let (_contract, topics, _data) = e;
+        topics.len() == 2
+            && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("predict"))
+            && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("price"))
+    });
+    assert!(
+        prediction_event.is_some(),
+        "First prediction should emit event"
+    );
+
+    client.predict_price(&user2, &2_3000000, &150_0000000);
+    let events = env.events().all();
+    let prediction_event = events.iter().find(|e| {
+        let (_contract, topics, _data) = e;
+        topics.len() == 2
+            && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("predict"))
+            && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("price"))
+    });
+    assert!(
+        prediction_event.is_some(),
+        "Second prediction should emit event"
+    );
+
+    client.predict_price(&user3, &2_4000000, &200_0000000);
+    let events = env.events().all();
+    let prediction_event = events.iter().find(|e| {
+        let (_contract, topics, _data) = e;
+        topics.len() == 2
+            && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("predict"))
+            && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("price"))
+    });
+    assert!(
+        prediction_event.is_some(),
+        "Third prediction should emit event"
+    );
+
+    // Resolve round
+    let round = client.get_active_round().unwrap();
+    env.ledger().with_mut(|li| {
+        li.sequence_number = round.end_ledger;
+    });
+
+    client.resolve_round(&OraclePayload {
+        price: 2_2500000, // Closest to user2's prediction
+        timestamp: env.ledger().timestamp(),
+        round_id: round.start_ledger,
+    });
+
+    let events = env.events().all();
+    let resolved_event = events.iter().find(|e| {
+        let (_contract, topics, _data) = e;
+        topics.len() == 2
+            && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("round"))
+            && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("resolved"))
+    });
+    assert!(
+        resolved_event.is_some(),
+        "Round resolved event should be emitted"
+    );
+
+    // Winner claims
+    client.claim_winnings(&user2);
+
+    let events = env.events().all();
+    let claim_event = events.iter().find(|e| {
+        let (_contract, topics, _data) = e;
+        topics.len() == 2
+            && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("claim"))
+            && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("winnings"))
+    });
+    assert!(
+        claim_event.is_some(),
+        "Claim winnings event should be emitted"
+    );
+}
+
+#[test]
+fn test_windows_update_event() {
+    let env = Env::default();
+    let contract_id = env.register(VirtualTokenContract, ());
+    let client = VirtualTokenContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+
+    env.mock_all_auths();
+
+    client.initialize(&admin, &oracle);
+
+    // Update windows - should emit windows updated event
+    client.set_windows(&10, &30);
+
+    let windows_events = env
+        .events()
+        .all()
+        .iter()
+        .filter(|e| {
+            let (_contract, topics, _data) = e;
+            topics.len() == 2
+                && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("windows"))
+                && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("updated"))
+        })
+        .count();
+    assert_eq!(windows_events, 1, "Should have 1 windows updated event");
 }

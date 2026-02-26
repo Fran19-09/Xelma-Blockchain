@@ -131,12 +131,15 @@ impl VirtualTokenContract {
             .remove(&DataKey::PrecisionPositions);
 
         // Emit round creation event with round ID and mode
+        // Topic: ("round", "created")
+        // Payload: (round_id: u64, start_price: u128, start_ledger: u32, bet_end_ledger: u32, end_ledger: u32, mode: u32)
         #[allow(deprecated)]
         env.events().publish(
             (symbol_short!("round"), symbol_short!("created")),
             (
                 round_id,
                 start_price,
+                start_ledger,
                 bet_end_ledger,
                 end_ledger,
                 mode_value,
@@ -196,7 +199,9 @@ impl VirtualTokenContract {
             .persistent()
             .set(&DataKey::RunWindowLedgers, &run_ledgers);
 
-        // Emit event
+        // Emit windows update event
+        // Topic: ("windows", "updated")
+        // Payload: (bet_window_ledgers: u32, run_window_ledgers: u32)
         #[allow(deprecated)]
         env.events().publish(
             (symbol_short!("windows"), symbol_short!("updated")),
@@ -307,10 +312,29 @@ impl VirtualTokenContract {
             .persistent()
             .get(&DataKey::Positions)
             .unwrap_or(Map::new(&env));
-        legacy_positions.set(user, UserPosition { amount, side });
+        legacy_positions.set(
+            user.clone(),
+            UserPosition {
+                amount,
+                side: side.clone(),
+            },
+        );
         env.storage()
             .persistent()
             .set(&DataKey::Positions, &legacy_positions);
+
+        // Emit bet placed event
+        // Topic: ("bet", "placed")
+        // Payload: (user: Address, round_id: u64, amount: i128, side: u32 where 0=Up, 1=Down)
+        let side_value: u32 = match side {
+            BetSide::Up => 0,
+            BetSide::Down => 1,
+        };
+        #[allow(deprecated)]
+        env.events().publish(
+            (symbol_short!("bet"), symbol_short!("placed")),
+            (user, round.round_id, amount, side_value),
+        );
 
         Ok(())
     }
@@ -386,10 +410,12 @@ impl VirtualTokenContract {
             .set(&DataKey::PrecisionPositions, &predictions);
 
         // Emit event for precision prediction
+        // Topic: ("predict", "price")
+        // Payload: (user: Address, round_id: u64, predicted_price: u128, amount: i128)
         #[allow(deprecated)]
         env.events().publish(
             (symbol_short!("predict"), symbol_short!("price")),
-            (user, predicted_price, round.start_ledger),
+            (user, round.round_id, predicted_price, amount),
         );
 
         Ok(())
@@ -506,11 +532,17 @@ impl VirtualTokenContract {
             .persistent()
             .remove(&DataKey::PrecisionPositions);
 
-        // Emit resolution event with round ID
+        // Emit resolution event with round ID, price, and mode
+        // Topic: ("round", "resolved")
+        // Payload: (round_id: u64, final_price: u128, mode: u32 where 0=UpDown, 1=Precision)
+        let mode_value: u32 = match round.mode {
+            RoundMode::UpDown => 0,
+            RoundMode::Precision => 1,
+        };
         #[allow(deprecated)]
         env.events().publish(
             (symbol_short!("round"), symbol_short!("resolved")),
-            (round_id, payload.price),
+            (round_id, payload.price, mode_value),
         );
 
         Ok(())
@@ -675,6 +707,15 @@ impl VirtualTokenContract {
 
         env.storage().persistent().remove(&key);
 
+        // Emit claim event
+        // Topic: ("claim", "winnings")
+        // Payload: (user: Address, amount: i128)
+        #[allow(deprecated)]
+        env.events().publish(
+            (symbol_short!("claim"), symbol_short!("winnings")),
+            (user, pending),
+        );
+
         Ok(pending)
     }
 
@@ -806,6 +847,15 @@ impl VirtualTokenContract {
 
         let initial_amount: i128 = 1000_0000000;
         env.storage().persistent().set(&key, &initial_amount);
+
+        // Emit mint event
+        // Topic: ("mint", "initial")
+        // Payload: (user: Address, amount: i128)
+        #[allow(deprecated)]
+        env.events().publish(
+            (symbol_short!("mint"), symbol_short!("initial")),
+            (user, initial_amount),
+        );
 
         initial_amount
     }
