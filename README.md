@@ -403,6 +403,85 @@ We welcome contributions from the community! Here's how you can help:
 4. Push to branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
+### Generated Files and Regeneration
+
+This repository contains both source files and generated artifacts. Understanding which files are generated and how to regenerate them is essential for contributions.
+
+#### Files That Are Committed (Source Files):
+- **`contracts/src/**`** - Rust source code (manually written)
+- **`bindings/src/index.ts`** - TypeScript bindings source (auto-generated but committed for convenience)
+- **`Cargo.toml`**, **`package.json`** - Dependency manifests
+- **Configuration files** - `.gitignore`, `tsconfig.json`, etc.
+
+#### Files That Are NOT Committed (Build Artifacts):
+- **`target/`** - Rust build outputs (WASM binaries, compiled Rust)
+- **`bindings/dist/`** - Compiled TypeScript output (JavaScript + type definitions)
+- **`node_modules/`** - npm dependencies
+- **`contracts/test_snapshots/`** - Test execution records (generated during tests)
+- **`contracts/proptest-regressions/`** - Property test regression files (generated during tests)
+- **`.soroban/`** - Soroban CLI artifacts
+
+#### How to Regenerate Build Artifacts:
+
+**1. Build the Smart Contract:**
+```bash
+cd contracts
+cargo build --target wasm32-unknown-unknown --release
+```
+
+**2. Regenerate TypeScript Bindings:**
+After building the contract, generate the bindings from the WASM file:
+```bash
+cd ../
+stellar contract bindings typescript \
+  --wasm target/wasm32-unknown-unknown/release/xelma_contract.wasm \
+  --output-dir ./bindings/src \
+  --overwrite
+```
+
+**3. Build TypeScript Bindings:**
+Compile the TypeScript bindings to JavaScript:
+```bash
+cd bindings
+npm install
+npm run build
+```
+
+**4. Run Tests (regenerates test artifacts):**
+```bash
+cd ../contracts
+cargo test
+```
+
+> **Note:** Test snapshots and proptest regressions are automatically generated when running tests. These files help ensure test consistency but should not be committed.
+
+#### Before Submitting a PR:
+
+1. **Verify no build artifacts are staged:**
+   ```bash
+   git status
+   # Ensure target/, bindings/dist/, node_modules/, test_snapshots/, proptest-regressions/ are not listed
+   ```
+
+2. **If you modified the contract**, regenerate bindings:
+   ```bash
+   # Build contract
+   cargo build --target wasm32-unknown-unknown --release --package xelma-contract
+   
+   # Regenerate bindings
+   stellar contract bindings typescript \
+     --wasm target/wasm32-unknown-unknown/release/xelma_contract.wasm \
+     --output-dir ./bindings/src \
+     --overwrite
+   
+   # Build bindings
+   cd bindings && npm run build && cd ..
+   ```
+
+3. **Commit only source files**, not build artifacts:
+   - ✅ Commit: `bindings/src/index.ts` (regenerated bindings source)
+   - ❌ Don't commit: `bindings/dist/` (compiled output)
+
 ### Good First Issues:
 Check issues labeled [`good-first-issue`](https://github.com/TevaLabs/Xelma-Blockchain/labels/good-first-issue) to get started!
 
