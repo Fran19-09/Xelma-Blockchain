@@ -325,7 +325,7 @@ fn test_user_stats_tracking() {
 
     // Simulate a win
     env.as_contract(&contract_id, || {
-        VirtualTokenContract::_update_stats_win(&env, alice.clone());
+        VirtualTokenContract::_update_stats_win(&env, alice.clone()).unwrap();
     });
 
     let stats = client.get_user_stats(&alice);
@@ -335,7 +335,7 @@ fn test_user_stats_tracking() {
 
     // Another win - streak increases
     env.as_contract(&contract_id, || {
-        VirtualTokenContract::_update_stats_win(&env, alice.clone());
+        VirtualTokenContract::_update_stats_win(&env, alice.clone()).unwrap();
     });
 
     let stats = client.get_user_stats(&alice);
@@ -345,7 +345,7 @@ fn test_user_stats_tracking() {
 
     // A loss - streak resets
     env.as_contract(&contract_id, || {
-        VirtualTokenContract::_update_stats_loss(&env, alice.clone());
+        VirtualTokenContract::_update_stats_loss(&env, alice.clone()).unwrap();
     });
 
     let stats = client.get_user_stats(&alice);
