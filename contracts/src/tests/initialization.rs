@@ -141,3 +141,19 @@ fn test_mint_initial_fails_without_user_auth() {
     let result = client.try_mint_initial(&user);
     assert!(result.is_err());
 }
+
+#[test]
+fn test_initialize_fails_identical_addresses() {
+    let env = Env::default();
+    let contract_id = env.register(VirtualTokenContract, ());
+    let client = VirtualTokenContractClient::new(&env, &contract_id);
+
+    // Generate a single address
+    let admin_and_oracle = Address::generate(&env);
+
+    env.mock_all_auths();
+
+    // Try to initialize using the same address for both
+    let result = client.try_initialize(&admin_and_oracle, &admin_and_oracle);
+    assert_eq!(result, Err(Ok(ContractError::AdminIsOracle)));
+}

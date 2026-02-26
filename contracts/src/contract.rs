@@ -16,6 +16,10 @@ impl VirtualTokenContract {
     pub fn initialize(env: Env, admin: Address, oracle: Address) -> Result<(), ContractError> {
         admin.require_auth();
 
+        if admin == oracle {
+            return Err(ContractError::AdminIsOracle);
+        }
+
         if env.storage().persistent().has(&DataKey::Admin) {
             return Err(ContractError::AlreadyInitialized);
         }

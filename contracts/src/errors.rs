@@ -47,4 +47,6 @@ pub enum ContractError {
     InvalidOracleRound = 19,
     /// An active round already exists and cannot be overwritten
     RoundAlreadyActive = 20,
+    /// Admin and Oracle addresses cannot be identical
+    AdminIsOracle = 21,
 }
