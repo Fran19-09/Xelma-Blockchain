@@ -73,21 +73,21 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Build contract (release)
-        run: cargo build --target wasm32-unknown-unknown --release --package hello-world
+        run: cargo build --target wasm32-unknown-unknown --release --package xelma-contract
 
       - name: Check WASM artifact exists
         run: |
-          if [ ! -f "target/wasm32-unknown-unknown/release/hello_world.wasm" ]; then
+          if [ ! -f "target/wasm32-unknown-unknown/release/xelma_contract.wasm" ]; then
             echo "Error: WASM file not found"
             exit 1
           fi
-          ls -lh target/wasm32-unknown-unknown/release/hello_world.wasm
+          ls -lh target/wasm32-unknown-unknown/release/xelma_contract.wasm
 
       - name: Upload WASM artifact
         uses: actions/upload-artifact@v4
         with:
           name: contract-wasm
-          path: target/wasm32-unknown-unknown/release/hello_world.wasm
+          path: target/wasm32-unknown-unknown/release/xelma_contract.wasm
           retention-days: 7
 
   bindings-build:
@@ -152,7 +152,7 @@ jobs:
       - name: Verify WASM and bindings compatibility
         run: |
           echo "Checking WASM file..."
-          ls -lh target/wasm32-unknown-unknown/release/hello_world.wasm
+          ls -lh target/wasm32-unknown-unknown/release/xelma_contract.wasm
 
           echo "Checking bindings..."
           ls -lh bindings/dist/

@@ -246,9 +246,9 @@ proptest! {
                 let before: UserStats = VirtualTokenContract::get_user_stats(env.clone(), user.clone());
 
                 if outcome {
-                    VirtualTokenContract::_update_stats_win(&env, user.clone());
+                    VirtualTokenContract::_update_stats_win(&env, user.clone()).unwrap();
                 } else {
-                    VirtualTokenContract::_update_stats_loss(&env, user.clone());
+                    VirtualTokenContract::_update_stats_loss(&env, user.clone()).unwrap();
                 }
 
                 let after: UserStats = VirtualTokenContract::get_user_stats(env.clone(), user.clone());

@@ -166,3 +166,85 @@ fn test_accumulate_pending_winnings() {
     assert_eq!(claimed, total_pending);
     assert_eq!(client.get_pending_winnings(&alice), 0);
 }
+
+#[test]
+fn test_claim_winnings_checked_overflow() {
+    let env = Env::default();
+    let contract_id = env.register(VirtualTokenContract, ());
+    let client = VirtualTokenContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let alice = Address::generate(&env);
+
+    env.mock_all_auths();
+
+    client.initialize(&admin, &oracle);
+    client.mint_initial(&alice);
+
+    // Artificially set balance to near i128::MAX and pending winnings to a
+    // value that would overflow when added.
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .set(&DataKey::Balance(alice.clone()), &i128::MAX);
+        env.storage()
+            .persistent()
+            .set(&DataKey::PendingWinnings(alice.clone()), &1_i128);
+    });
+
+    // claim_winnings should fail with Overflow because balance + pending > i128::MAX
+    let result = client.try_claim_winnings(&alice);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_stats_checked_overflow() {
+    let env = Env::default();
+    let contract_id = env.register(VirtualTokenContract, ());
+    let client = VirtualTokenContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let alice = Address::generate(&env);
+
+    env.mock_all_auths();
+
+    client.initialize(&admin, &oracle);
+    client.mint_initial(&alice);
+
+    // Set stats near u32::MAX so the next win overflows total_wins
+    use crate::types::UserStats;
+    env.as_contract(&contract_id, || {
+        let stats = UserStats {
+            total_wins: u32::MAX,
+            total_losses: 0,
+            current_streak: 0,
+            best_streak: 0,
+        };
+        env.storage()
+            .persistent()
+            .set(&DataKey::UserStats(alice.clone()), &stats);
+    });
+
+    // Create a round, bet, and resolve so _update_stats_win is triggered
+    client.create_round(&1_0000000, &None);
+    client.place_bet(&alice, &100_0000000, &BetSide::Up);
+
+    // Add a losing side so there's a loser pool
+    let bob = Address::generate(&env);
+    client.mint_initial(&bob);
+    client.place_bet(&bob, &50_0000000, &BetSide::Down);
+
+    env.ledger().with_mut(|li| {
+        li.sequence_number = 12;
+    });
+
+    // Resolve should fail because _update_stats_win overflows total_wins
+    let result = client.try_resolve_round(&OraclePayload {
+        price: 2_0000000,
+        timestamp: env.ledger().timestamp(),
+        round_id: 0,
+    });
+    assert!(result.is_err());
+}

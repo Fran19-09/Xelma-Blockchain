@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/TevaLabs/Xelma-Blockchain/actions/workflows/ci.yml/badge.svg)](https://github.com/TevaLabs/Xelma-Blockchain/actions/workflows/ci.yml)
 [![Rust](https://img.shields.io/badge/Rust-1.92.0-orange.svg)](https://www.rust-lang.org/)
-[![Soroban](https://img.shields.io/badge/Soroban-23.4.0-blue.svg)](https://soroban.stellar.org/)
-[![Tests](https://img.shields.io/badge/tests-55%2F55%20passing-brightgreen.svg)]()
+[![Soroban](https://img.shields.io/badge/Soroban-23.0.1-blue.svg)](https://soroban.stellar.org/)
+[![Tests](https://img.shields.io/badge/tests-80%2F80%20passing-brightgreen.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > A trustless, transparent, and decentralized prediction market for XLM price movements built on Stellar blockchain using Soroban smart contracts.
@@ -124,12 +124,12 @@ Unlike traditional prediction markets, Xelma is:
 
 ### Smart Contract (Rust + Soroban)
 - **Language**: Rust 1.92.0
-- **Framework**: Soroban SDK 23.4.0
+- **Framework**: Soroban SDK 23.0.1
 - **Blockchain**: Stellar (Testnet)
-- **Testing**: 55/55 tests passing (100% coverage)
+- **Testing**: 80/80 tests passing (100% coverage)
 
 ### Key Features:
-- ✅ Custom error handling (13 error types)
+- ✅ Custom error handling (20 error types)
 - ✅ Overflow protection (checked arithmetic)
 - ✅ Role-based access control (Admin, Oracle, User)
 - ✅ Input validation on all functions
@@ -171,13 +171,27 @@ This ensures:
 Xelma-Blockchain/
 ├── contracts/                 # Main prediction market contract
 │   ├── src/
-│   │   └── lib.rs            # Smart contract implementation (1,600 lines)
+│   │   ├── lib.rs            # Crate root and module declarations
+│   │   ├── contract.rs       # Core contract implementation (~820 lines)
+│   │   ├── errors.rs         # Custom error types (20 variants)
+│   │   ├── types.rs          # Contract types and storage keys
+│   │   └── tests/            # Test suite (80 tests)
+│   │       ├── mod.rs
+│   │       ├── betting.rs
+│   │       ├── edge_cases.rs
+│   │       ├── initialization.rs
+│   │       ├── lifecycle.rs
+│   │       ├── mode_tests.rs
+│   │       ├── property_invariants.rs
+│   │       ├── resolution.rs
+│   │       ├── security.rs
+│   │       └── windows.rs
 │   ├── Cargo.toml            # Rust dependencies
 │   └── test_snapshots/       # Test execution records
 │
 ├── bindings/                  # TypeScript bindings (auto-generated)
 │   ├── src/
-│   │   └── index.ts          # Contract types & client (640 lines)
+│   │   └── index.ts          # Contract types & client (~640 lines)
 │   ├── dist/                  # Compiled JavaScript
 │   ├── package.json           # NPM package config
 │   └── README.md              # Bindings usage guide
@@ -185,7 +199,7 @@ Xelma-Blockchain/
 ├── target/                    # Build artifacts
 │   └── wasm32-unknown-unknown/
 │       └── release/
-│           └── hello_world.wasm  # Compiled contract
+│           └── xelma_contract.wasm  # Compiled contract
 │
 ├── SECURITY_REVIEW.md         # Comprehensive security audit
 ├── Cargo.toml                 # Workspace configuration
@@ -220,7 +234,7 @@ cargo build --target wasm32-unknown-unknown --release
 
 ```bash
 cargo test
-# Output: 55 passed; 0 failed
+# Output: 80 passed; 0 failed
 ```
 
 ### 4. Generate & Build Bindings
@@ -228,7 +242,7 @@ cargo test
 ```bash
 cd ../../
 stellar contract bindings typescript \
-  --wasm target/wasm32-unknown-unknown/release/hello_world.wasm \
+  --wasm target/wasm32-unknown-unknown/release/xelma_contract.wasm \
   --output-dir ./bindings \
   --overwrite
 
@@ -270,13 +284,13 @@ console.log(`Wins: ${stats.total_wins}, Streak: ${stats.current_streak}`);
 We take security seriously. The contract has undergone comprehensive hardening:
 
 ### Security Features:
-- ✅ **13 Custom Error Types** - Clear, debuggable error codes
+- ✅ **20 Custom Error Types** - Clear, debuggable error codes
 - ✅ **Checked Arithmetic** - All math operations use `checked_*` to prevent overflow
 - ✅ **Role-Based Access** - Admin creates rounds, Oracle resolves, Users bet
 - ✅ **Input Validation** - All parameters validated (amount > 0, round active, etc.)
 - ✅ **No Reentrancy Risk** - CEI pattern (Checks-Effects-Interactions)
 - ✅ **State Consistency** - Prevents double betting, validates round lifecycle
-- ✅ **55/55 Tests Passing** - Full coverage of edge cases and attack vectors
+- ✅ **80/80 Tests Passing** - Full coverage of edge cases and attack vectors
 
 ### Audited:
 - [SECURITY_REVIEW.md](./SECURITY_REVIEW.md) - Complete security analysis
@@ -293,6 +307,7 @@ We take security seriously. The contract has undergone comprehensive hardening:
 - `balance(user)` - Query current balance
 - `place_bet(user, amount, side)` - Bet on UP or DOWN (Mode 0)
 - `place_precision_prediction(user, amount, predicted_price)` - Predict exact price (Mode 1)
+- `predict_price(user, guessed_price, amount)` - Alias for `place_precision_prediction`
 - `claim_winnings(user)` - Withdraw pending winnings
 - `get_user_stats(user)` - View wins, losses, streaks
 - `get_user_position(user)` - Check bet in current round (Mode 0)
@@ -308,6 +323,7 @@ We take security seriously. The contract has undergone comprehensive hardening:
 
 ### Query Functions:
 - `get_active_round()` - View current round details (includes mode)
+- `get_last_round_id()` - Query the latest round ID
 - `get_admin()` - Query admin address
 - `get_oracle()` - Query oracle address
 - `get_pending_winnings(user)` - Check claimable amount
@@ -345,7 +361,7 @@ We take security seriously. The contract has undergone comprehensive hardening:
 - [x] Up/Down betting mechanism with proportional payouts
 - [x] Precision prediction mechanism (closest guess wins)
 - [x] User statistics tracking
-- [x] Comprehensive testing (55/55)
+- [x] Comprehensive testing (80/80)
 - [x] Security hardening
 - [x] TypeScript bindings
 
@@ -394,10 +410,10 @@ Check issues labeled [`good-first-issue`](https://github.com/TevaLabs/Xelma-Bloc
 
 ## 📚 Documentation
 
-- **[Smart Contract](./contracts/src/lib.rs)** - Fully commented Rust code
+- **[Smart Contract](./contracts/src/)** - Modular Rust code (contract, types, errors)
 - **[Security Review](./SECURITY_REVIEW.md)** - Security analysis and best practices
 - **[Bindings Guide](./bindings/README.md)** - TypeScript integration guide
-- **[Test Suite](./contracts/src/lib.rs#tests)** - Comprehensive test examples
+- **[Test Suite](./contracts/src/tests/)** - Comprehensive test examples (80 tests)
 
 ---
 
@@ -426,6 +442,19 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 - **GitHub**: [@TevaLabs](https://github.com/TevaLabs)
 - **Repository**: [Xelma-Blockchain](https://github.com/TevaLabs/Xelma-Blockchain)
 - **Issues**: [Report bugs or request features](https://github.com/TevaLabs/Xelma-Blockchain/issues)
+
+---
+
+## 🔧 Maintenance Checklist
+
+When making contract changes, update the following to keep this README in sync:
+
+- [ ] **Test count** — re-run `cargo test` and update badge + inline counts
+- [ ] **Error types** — if new `ContractError` variants are added, update the error-type count
+- [ ] **Function list** — add/remove entries under *Contract Functions* section
+- [ ] **Build artifact name** — if the crate name changes, update `Cargo.toml`, CI workflow, and the binding generation command
+- [ ] **SDK version** — after bumping `soroban-sdk`, update the Soroban badge and *Technical Stack* section
+- [ ] **Repository structure** — reflect any new source files or directories
 
 ---
 

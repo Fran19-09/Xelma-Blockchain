@@ -638,7 +638,7 @@ impl VirtualTokenContract {
                         .ok_or(ContractError::Overflow)?;
                     env.storage().persistent().set(&key, &new_pending);
 
-                    Self::_update_stats_win(env, winner.user.clone());
+                    Self::_update_stats_win(env, winner.user.clone())?;
                 }
             }
 
@@ -647,7 +647,7 @@ impl VirtualTokenContract {
                 if let Some(pred) = predictions.get(i) {
                     let is_winner = winners.iter().any(|w| w.user == pred.user);
                     if !is_winner {
-                        Self::_update_stats_loss(env, pred.user.clone());
+                        Self::_update_stats_loss(env, pred.user.clone())?;
                     }
                 }
             }
@@ -657,23 +657,25 @@ impl VirtualTokenContract {
     }
 
     /// Claims pending winnings and adds to balance
-    pub fn claim_winnings(env: Env, user: Address) -> i128 {
+    pub fn claim_winnings(env: Env, user: Address) -> Result<i128, ContractError> {
         user.require_auth();
 
         let key = DataKey::PendingWinnings(user.clone());
         let pending: i128 = env.storage().persistent().get(&key).unwrap_or(0);
 
         if pending == 0 {
-            return 0;
+            return Ok(0);
         }
 
         let current_balance = Self::balance(env.clone(), user.clone());
-        let new_balance = current_balance + pending;
+        let new_balance = current_balance
+            .checked_add(pending)
+            .ok_or(ContractError::Overflow)?;
         Self::_set_balance(&env, user.clone(), new_balance);
 
         env.storage().persistent().remove(&key);
 
-        pending
+        Ok(pending)
     }
 
     /// Records refunds when price unchanged
@@ -736,9 +738,9 @@ impl VirtualTokenContract {
                             .ok_or(ContractError::Overflow)?;
                         env.storage().persistent().set(&key, &new_pending);
 
-                        Self::_update_stats_win(env, user);
+                        Self::_update_stats_win(env, user)?;
                     } else {
-                        Self::_update_stats_loss(env, user);
+                        Self::_update_stats_loss(env, user)?;
                     }
                 }
             }
@@ -747,7 +749,7 @@ impl VirtualTokenContract {
         Ok(())
     }
 
-    pub(crate) fn _update_stats_win(env: &Env, user: Address) {
+    pub(crate) fn _update_stats_win(env: &Env, user: Address) -> Result<(), ContractError> {
         let key = DataKey::UserStats(user);
         let mut stats: UserStats = env.storage().persistent().get(&key).unwrap_or(UserStats {
             total_wins: 0,
@@ -756,17 +758,24 @@ impl VirtualTokenContract {
             best_streak: 0,
         });
 
-        stats.total_wins += 1;
-        stats.current_streak += 1;
+        stats.total_wins = stats
+            .total_wins
+            .checked_add(1)
+            .ok_or(ContractError::Overflow)?;
+        stats.current_streak = stats
+            .current_streak
+            .checked_add(1)
+            .ok_or(ContractError::Overflow)?;
 
         if stats.current_streak > stats.best_streak {
             stats.best_streak = stats.current_streak;
         }
 
         env.storage().persistent().set(&key, &stats);
+        Ok(())
     }
 
-    pub(crate) fn _update_stats_loss(env: &Env, user: Address) {
+    pub(crate) fn _update_stats_loss(env: &Env, user: Address) -> Result<(), ContractError> {
         let key = DataKey::UserStats(user);
         let mut stats: UserStats = env.storage().persistent().get(&key).unwrap_or(UserStats {
             total_wins: 0,
@@ -775,10 +784,14 @@ impl VirtualTokenContract {
             best_streak: 0,
         });
 
-        stats.total_losses += 1;
+        stats.total_losses = stats
+            .total_losses
+            .checked_add(1)
+            .ok_or(ContractError::Overflow)?;
         stats.current_streak = 0;
 
         env.storage().persistent().set(&key, &stats);
+        Ok(())
     }
 
     /// Mints 1000 vXLM for new users (one-time only)
