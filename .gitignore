@@ -4,8 +4,16 @@ target/
 *.pdb
 Cargo.lock
 
+# Rust Test Artifacts
+contracts/test_snapshots/
+contracts/proptest-regressions/
+
 # Soroban
 .soroban/
+
+# TypeScript/Node.js
+node_modules/
+bindings/dist/
 
 # IDE
 .vscode/
