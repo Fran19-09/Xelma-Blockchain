@@ -13,6 +13,37 @@ soroban contract bindings ts \
 ```
 
 The network passphrase and contract ID are exported from [index.ts](./src/index.ts) in the `networks` constant. If you are the one who generated this library and you know that this contract is also deployed to other networks, feel free to update `networks` with other valid options. This will help your contract consumers use this library more easily.
+## Regenerating from Latest Contract ABI
+
+This library is automatically generated from the latest Stellar contract ABI. To regenerate the bindings after updating the contract:
+
+1. Build the latest WASM contract:
+  ```bash
+  cd ../contracts
+  cargo build --target wasm32-unknown-unknown --release
+  ```
+
+2. Generate new TypeScript bindings from the WASM:
+  ```bash
+  cd ../
+  stellar contract bindings typescript --wasm target/wasm32-unknown-unknown/release/hello_world.wasm --output-dir bindings/src --overwrite
+  ```
+
+3. Build and verify the TypeScript:
+  ```bash
+  cd bindings
+  npm install
+  npm run build
+  ```
+
+## API Features
+
+The generated bindings include full type definitions for:
+
+- **Round Modes**: UpDown (price direction) and Precision (exact price prediction)
+- **Methods**: `place_bet`, `predict_price`, `place_precision_prediction`, `set_windows`, `resolve_round`, and more
+- **Types**: `Round`, `RoundMode`, `PrecisionPrediction`, `UserStats`, `BetSide`, and complete error mappings
+- **All current contract error codes**: AlreadyInitialized through RoundAlreadyActive (20 total errors)
 
 # To publish or not to publish
 
