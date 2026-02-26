@@ -4,7 +4,7 @@ use crate::contract::{VirtualTokenContract, VirtualTokenContractClient};
 use crate::errors::ContractError;
 use crate::types::BetSide;
 use soroban_sdk::{
-    symbol_short, Symbol,
+    symbol_short,
     testutils::{Address as _, Events, Ledger as _},
     Address, Env, TryIntoVal,
 };
@@ -184,9 +184,9 @@ fn test_bet_placed_event_payload() {
     let events = env.events().all();
     let bet_event = events.iter().find(|e| {
         let (_contract, topics, _data) = e;
-           topics.len() == 2 && 
-           topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("bet")) &&
-           topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("placed"))
+        topics.len() == 2
+            && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("bet"))
+            && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("placed"))
     });
 
     assert!(bet_event.is_some(), "Bet placed event should be emitted");
@@ -217,9 +217,9 @@ fn test_multiple_bets_emit_separate_events() {
     let events = env.events().all();
     let bet_event = events.iter().any(|e| {
         let (_contract, topics, _data) = e;
-        topics.len() == 2 &&
-        topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("bet")) &&
-        topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("placed"))
+        topics.len() == 2
+            && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("bet"))
+            && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("placed"))
     });
     assert!(bet_event, "First bet should emit event");
 
@@ -227,9 +227,9 @@ fn test_multiple_bets_emit_separate_events() {
     let events = env.events().all();
     let bet_event = events.iter().any(|e| {
         let (_contract, topics, _data) = e;
-        topics.len() == 2 &&
-        topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("bet")) &&
-        topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("placed"))
+        topics.len() == 2
+            && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("bet"))
+            && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("placed"))
     });
     assert!(bet_event, "Second bet should emit event");
 
@@ -237,9 +237,9 @@ fn test_multiple_bets_emit_separate_events() {
     let events = env.events().all();
     let bet_event = events.iter().any(|e| {
         let (_contract, topics, _data) = e;
-        topics.len() == 2 &&
-        topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("bet")) &&
-        topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("placed"))
+        topics.len() == 2
+            && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("bet"))
+            && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("placed"))
     });
     assert!(bet_event, "Third bet should emit event");
 }

@@ -312,7 +312,13 @@ impl VirtualTokenContract {
             .persistent()
             .get(&DataKey::Positions)
             .unwrap_or(Map::new(&env));
-        legacy_positions.set(user.clone(), UserPosition { amount, side: side.clone() });
+        legacy_positions.set(
+            user.clone(),
+            UserPosition {
+                amount,
+                side: side.clone(),
+            },
+        );
         env.storage()
             .persistent()
             .set(&DataKey::Positions, &legacy_positions);

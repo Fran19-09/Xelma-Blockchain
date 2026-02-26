@@ -482,19 +482,22 @@ fn test_round_created_event_includes_mode() {
     let events = env.events().all();
     let round_event = events.iter().find(|e| {
         let (_contract, topics, _data) = e;
-        topics.len() == 2 && 
-        topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("round")) &&
-        topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("created"))
+        topics.len() == 2
+            && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("round"))
+            && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("created"))
     });
 
-    assert!(round_event.is_some(), "Round created event should be emitted");
+    assert!(
+        round_event.is_some(),
+        "Round created event should be emitted"
+    );
 
     // Resolve and create Precision mode round
     let round = client.get_active_round().unwrap();
     env.ledger().with_mut(|li| {
         li.sequence_number = round.end_ledger;
     });
-    
+
     client.resolve_round(&OraclePayload {
         price: 1_0000000,
         timestamp: env.ledger().timestamp(),
@@ -507,12 +510,15 @@ fn test_round_created_event_includes_mode() {
     let events = env.events().all();
     let round_event = events.iter().find(|e| {
         let (_contract, topics, _data) = e;
-        topics.len() == 2 && 
-        topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("round")) &&
-        topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("created"))
+        topics.len() == 2
+            && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("round"))
+            && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("created"))
     });
 
-    assert!(round_event.is_some(), "Second round created event should be emitted");
+    assert!(
+        round_event.is_some(),
+        "Second round created event should be emitted"
+    );
 }
 
 #[test]
@@ -532,9 +538,9 @@ fn test_mint_initial_event_emitted() {
     let events = env.events().all();
     let mint_event = events.iter().find(|e| {
         let (_contract, topics, _data) = e;
-        topics.len() == 2 && 
-        topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("mint")) &&
-        topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("initial"))
+        topics.len() == 2
+            && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("mint"))
+            && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("initial"))
     });
 
     assert!(mint_event.is_some(), "Mint initial event should be emitted");
@@ -557,9 +563,9 @@ fn test_no_mint_event_on_second_call() {
     let events = env.events().all();
     let mint_event = events.iter().find(|e| {
         let (_contract, topics, _data) = e;
-        topics.len() == 2 && 
-        topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("mint")) &&
-        topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("initial"))
+        topics.len() == 2
+            && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("mint"))
+            && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("initial"))
     });
     assert!(mint_event.is_some());
 
@@ -570,9 +576,9 @@ fn test_no_mint_event_on_second_call() {
     let events = env.events().all();
     let mint_event = events.iter().find(|e| {
         let (_contract, topics, _data) = e;
-        topics.len() == 2 && 
-        topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("mint")) &&
-        topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("initial"))
+        topics.len() == 2
+            && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("mint"))
+            && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("initial"))
     });
     assert!(mint_event.is_none(), "Should not emit second mint event");
 }

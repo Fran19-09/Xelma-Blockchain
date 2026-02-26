@@ -1144,12 +1144,15 @@ fn test_round_resolved_event_emitted() {
     let events = env.events().all();
     let resolved_event = events.iter().find(|e| {
         let (_contract, topics, _data) = e;
-        topics.len() == 2 && 
-        topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("round")) &&
-        topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("resolved"))
+        topics.len() == 2
+            && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("round"))
+            && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("resolved"))
     });
 
-    assert!(resolved_event.is_some(), "Round resolved event should be emitted");
+    assert!(
+        resolved_event.is_some(),
+        "Round resolved event should be emitted"
+    );
 }
 
 #[test]
@@ -1211,12 +1214,15 @@ fn test_claim_winnings_event_emitted() {
     let events = env.events().all();
     let claim_event = events.iter().find(|e| {
         let (_contract, topics, _data) = e;
-        topics.len() == 2 && 
-        topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("claim")) &&
-        topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("winnings"))
+        topics.len() == 2
+            && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("claim"))
+            && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("winnings"))
     });
 
-    assert!(claim_event.is_some(), "Claim winnings event should be emitted");
+    assert!(
+        claim_event.is_some(),
+        "Claim winnings event should be emitted"
+    );
 }
 
 #[test]
@@ -1235,7 +1241,7 @@ fn test_no_claim_event_when_no_winnings() {
     client.mint_initial(&user);
 
     // Count events before claim
-    let events_before = env.events().all().len();
+    let _events_before = env.events().all().len();
 
     // Try to claim when no winnings available
     let claimed = client.claim_winnings(&user);
@@ -1243,12 +1249,18 @@ fn test_no_claim_event_when_no_winnings() {
 
     // Count claim events after
     let events_after = env.events().all();
-    let claim_events = events_after.iter().filter(|e| {
-        let (_contract, topics, _data) = e;
-        topics.len() == 2 && 
-        topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("claim")) &&
-        topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("winnings"))
-    }).count();
+    let claim_events = events_after
+        .iter()
+        .filter(|e| {
+            let (_contract, topics, _data) = e;
+            topics.len() == 2
+                && topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("claim"))
+                && topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("winnings"))
+        })
+        .count();
 
-    assert_eq!(claim_events, 0, "Should not emit claim event when no winnings");
+    assert_eq!(
+        claim_events, 0,
+        "Should not emit claim event when no winnings"
+    );
 }
