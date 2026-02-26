@@ -172,7 +172,10 @@ jobs:
             exit 1
           fi
 
-          echo "Parity check passed: Contract and bindings are compatible"
+          echo "Running ABI drift checking script..."
+          cd bindings
+          npm ci
+          npm run test:parity
 
   format-check:
     name: Format Check
