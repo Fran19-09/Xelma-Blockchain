@@ -4,8 +4,9 @@ use crate::contract::{VirtualTokenContract, VirtualTokenContractClient};
 use crate::errors::ContractError;
 use crate::types::{BetSide, DataKey, OraclePayload, Round, UserPosition};
 use soroban_sdk::{
-    testutils::{Address as _, Ledger as _},
-    Address, Env, IntoVal, Map,
+    symbol_short,
+    testutils::{Address as _, Events, Ledger as _},
+    Address, Env, IntoVal, Map, TryIntoVal,
 };
 
 #[test]
@@ -459,4 +460,119 @@ fn test_claim_winnings_fails_without_user_auth() {
     // Attempt to claim winnings without user auth
     let result = client.try_claim_winnings(&user);
     assert!(result.is_err());
+}
+
+#[test]
+fn test_round_created_event_includes_mode() {
+    let env = Env::default();
+    let contract_id = env.register(VirtualTokenContract, ());
+    let client = VirtualTokenContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+
+    env.mock_all_auths();
+
+    client.initialize(&admin, &oracle);
+
+    // Create Up/Down mode round
+    client.create_round(&1_0000000, &Some(0));
+
+    // Verify round created event
+    let events = env.events().all();
+    let round_event = events.iter().find(|e| {
+        let (_contract, topics, _data) = e;
+        topics.len() == 2 && 
+        topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("round")) &&
+        topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("created"))
+    });
+
+    assert!(round_event.is_some(), "Round created event should be emitted");
+
+    // Resolve and create Precision mode round
+    let round = client.get_active_round().unwrap();
+    env.ledger().with_mut(|li| {
+        li.sequence_number = round.end_ledger;
+    });
+    
+    client.resolve_round(&OraclePayload {
+        price: 1_0000000,
+        timestamp: env.ledger().timestamp(),
+        round_id: round.start_ledger,
+    });
+
+    client.create_round(&1_0000000, &Some(1));
+
+    // Verify round created event for precision round
+    let events = env.events().all();
+    let round_event = events.iter().find(|e| {
+        let (_contract, topics, _data) = e;
+        topics.len() == 2 && 
+        topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("round")) &&
+        topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("created"))
+    });
+
+    assert!(round_event.is_some(), "Second round created event should be emitted");
+}
+
+#[test]
+fn test_mint_initial_event_emitted() {
+    let env = Env::default();
+    let contract_id = env.register(VirtualTokenContract, ());
+    let client = VirtualTokenContractClient::new(&env, &contract_id);
+
+    let user = Address::generate(&env);
+
+    env.mock_all_auths();
+
+    // Mint initial tokens
+    client.mint_initial(&user);
+
+    // Verify mint event was emitted
+    let events = env.events().all();
+    let mint_event = events.iter().find(|e| {
+        let (_contract, topics, _data) = e;
+        topics.len() == 2 && 
+        topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("mint")) &&
+        topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("initial"))
+    });
+
+    assert!(mint_event.is_some(), "Mint initial event should be emitted");
+}
+
+#[test]
+fn test_no_mint_event_on_second_call() {
+    let env = Env::default();
+    let contract_id = env.register(VirtualTokenContract, ());
+    let client = VirtualTokenContractClient::new(&env, &contract_id);
+
+    let user = Address::generate(&env);
+
+    env.mock_all_auths();
+
+    // First mint
+    client.mint_initial(&user);
+
+    // Count mint events after first call
+    let events = env.events().all();
+    let mint_event = events.iter().find(|e| {
+        let (_contract, topics, _data) = e;
+        topics.len() == 2 && 
+        topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("mint")) &&
+        topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("initial"))
+    });
+    assert!(mint_event.is_some());
+
+    // Second mint attempt (should return existing balance, no event)
+    client.mint_initial(&user);
+
+    // No events should be emitted
+    let events = env.events().all();
+    let mint_event = events.iter().find(|e| {
+        let (_contract, topics, _data) = e;
+        topics.len() == 2 && 
+        topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("mint")) &&
+        topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("initial"))
+    });
+    assert!(mint_event.is_none(), "Should not emit second mint event");
 }

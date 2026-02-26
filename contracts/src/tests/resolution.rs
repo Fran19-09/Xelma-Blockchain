@@ -4,8 +4,9 @@ use crate::contract::{VirtualTokenContract, VirtualTokenContractClient};
 use crate::errors::ContractError;
 use crate::types::{BetSide, DataKey, OraclePayload, PrecisionPrediction, Round, UserPosition};
 use soroban_sdk::{
-    testutils::{Address as _, Ledger as _},
-    Address, Env, Map,
+    symbol_short,
+    testutils::{Address as _, Events, Ledger as _},
+    Address, Env, Map, TryIntoVal,
 };
 
 #[test]
@@ -1107,4 +1108,147 @@ fn test_precision_no_remainder() {
     // Both get exactly 50
     assert_eq!(client.get_pending_winnings(&alice), 50_0000000);
     assert_eq!(client.get_pending_winnings(&bob), 50_0000000);
+}
+
+#[test]
+fn test_round_resolved_event_emitted() {
+    let env = Env::default();
+    let contract_id = env.register(VirtualTokenContract, ());
+    let client = VirtualTokenContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    env.mock_all_auths();
+
+    client.initialize(&admin, &oracle);
+    client.mint_initial(&user);
+    client.create_round(&1_0000000, &None);
+
+    client.place_bet(&user, &100_0000000, &BetSide::Up);
+
+    // Advance ledger to allow resolution
+    env.ledger().with_mut(|li| {
+        li.sequence_number = 12;
+    });
+
+    // Resolve round
+    client.resolve_round(&OraclePayload {
+        price: 1_5000000,
+        timestamp: env.ledger().timestamp(),
+        round_id: 0,
+    });
+
+    // Verify resolved event was emitted
+    let events = env.events().all();
+    let resolved_event = events.iter().find(|e| {
+        let (_contract, topics, _data) = e;
+        topics.len() == 2 && 
+        topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("round")) &&
+        topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("resolved"))
+    });
+
+    assert!(resolved_event.is_some(), "Round resolved event should be emitted");
+}
+
+#[test]
+fn test_claim_winnings_event_emitted() {
+    let env = Env::default();
+    let contract_id = env.register(VirtualTokenContract, ());
+    let client = VirtualTokenContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    env.mock_all_auths();
+
+    client.initialize(&admin, &oracle);
+    client.mint_initial(&user);
+    client.create_round(&1_0000000, &None);
+
+    // Manually set up position and winnings
+    env.as_contract(&contract_id, || {
+        let mut positions = Map::<Address, UserPosition>::new(&env);
+        positions.set(
+            user.clone(),
+            UserPosition {
+                amount: 100_0000000,
+                side: BetSide::Up,
+            },
+        );
+        env.storage()
+            .persistent()
+            .set(&DataKey::UpDownPositions, &positions);
+
+        let mut round: Round = env
+            .storage()
+            .persistent()
+            .get(&DataKey::ActiveRound)
+            .unwrap();
+        round.pool_up = 100_0000000;
+        env.storage()
+            .persistent()
+            .set(&DataKey::ActiveRound, &round);
+    });
+
+    env.ledger().with_mut(|li| {
+        li.sequence_number = 12;
+    });
+
+    // Resolve - price went up so user wins
+    client.resolve_round(&OraclePayload {
+        price: 1_5000000,
+        timestamp: env.ledger().timestamp(),
+        round_id: 0,
+    });
+
+    // Claim winnings
+    client.claim_winnings(&user);
+
+    // Verify claim event was emitted
+    let events = env.events().all();
+    let claim_event = events.iter().find(|e| {
+        let (_contract, topics, _data) = e;
+        topics.len() == 2 && 
+        topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("claim")) &&
+        topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("winnings"))
+    });
+
+    assert!(claim_event.is_some(), "Claim winnings event should be emitted");
+}
+
+#[test]
+fn test_no_claim_event_when_no_winnings() {
+    let env = Env::default();
+    let contract_id = env.register(VirtualTokenContract, ());
+    let client = VirtualTokenContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    env.mock_all_auths();
+
+    client.initialize(&admin, &oracle);
+    client.mint_initial(&user);
+
+    // Count events before claim
+    let events_before = env.events().all().len();
+
+    // Try to claim when no winnings available
+    let claimed = client.claim_winnings(&user);
+    assert_eq!(claimed, 0);
+
+    // Count claim events after
+    let events_after = env.events().all();
+    let claim_events = events_after.iter().filter(|e| {
+        let (_contract, topics, _data) = e;
+        topics.len() == 2 && 
+        topics.get(0).unwrap().try_into_val(&env) == Ok(symbol_short!("claim")) &&
+        topics.get(1).unwrap().try_into_val(&env) == Ok(symbol_short!("winnings"))
+    }).count();
+
+    assert_eq!(claim_events, 0, "Should not emit claim event when no winnings");
 }
