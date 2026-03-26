@@ -24,6 +24,7 @@ pub enum DataKey {
     PrecisionPositions, // Map<Address, PrecisionPrediction> for Precision mode
     PendingWinnings(Address),
     UserStats(Address),
+    Paused,
     BetWindowLedgers, // Bet window duration in ledgers
     RunWindowLedgers, // Run window duration in ledgers
     LastRoundId,      // Counter for monotonically increasing round IDs

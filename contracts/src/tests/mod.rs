@@ -5,6 +5,7 @@ mod edge_cases;
 mod initialization;
 mod lifecycle;
 mod mode_tests;
+mod pause;
 mod property_invariants;
 mod resolution;
 mod security;

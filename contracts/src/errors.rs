@@ -49,4 +49,6 @@ pub enum ContractError {
     RoundAlreadyActive = 20,
     /// Admin and Oracle addresses cannot be identical
     AdminIsOracle = 21,
+    /// Contract is paused for emergency recovery
+    ContractPaused = 22,
 }

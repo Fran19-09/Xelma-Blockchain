@@ -1,6 +1,6 @@
 //! Core contract implementation for the XLM Price Prediction Market.
 
-use soroban_sdk::{contract, contractimpl, symbol_short, Address, Env, Map, Vec};
+use soroban_sdk::{contract, contractimpl, panic_with_error, symbol_short, Address, Env, Map, Vec};
 
 use crate::errors::ContractError;
 use crate::types::{
@@ -26,6 +26,7 @@ impl VirtualTokenContract {
 
         env.storage().persistent().set(&DataKey::Admin, &admin);
         env.storage().persistent().set(&DataKey::Oracle, &oracle);
+        env.storage().persistent().set(&DataKey::Paused, &false);
 
         // Set default window values
         env.storage()
@@ -34,6 +35,42 @@ impl VirtualTokenContract {
         env.storage()
             .persistent()
             .set(&DataKey::RunWindowLedgers, &12u32);
+
+        Ok(())
+    }
+
+    /// Returns whether the contract is currently paused
+    pub fn is_paused(env: Env) -> bool {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+    }
+
+    /// Pauses the contract for emergency recovery (admin only)
+    pub fn pause_contract(env: Env) -> Result<(), ContractError> {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .ok_or(ContractError::AdminNotSet)?;
+
+        admin.require_auth();
+        env.storage().persistent().set(&DataKey::Paused, &true);
+
+        Ok(())
+    }
+
+    /// Unpauses the contract after recovery (admin only)
+    pub fn unpause_contract(env: Env) -> Result<(), ContractError> {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .ok_or(ContractError::AdminNotSet)?;
+
+        admin.require_auth();
+        env.storage().persistent().set(&DataKey::Paused, &false);
 
         Ok(())
     }
@@ -70,6 +107,7 @@ impl VirtualTokenContract {
             .ok_or(ContractError::AdminNotSet)?;
 
         admin.require_auth();
+        Self::_ensure_not_paused(&env)?;
 
         // Prevent overwriting an already active round
         if env.storage().persistent().has(&DataKey::ActiveRound) {
@@ -181,6 +219,7 @@ impl VirtualTokenContract {
             .ok_or(ContractError::AdminNotSet)?;
 
         admin.require_auth();
+        Self::_ensure_not_paused(&env)?;
 
         // Validate both values are positive
         if bet_ledgers == 0 || run_ledgers == 0 {
@@ -236,6 +275,7 @@ impl VirtualTokenContract {
         side: BetSide,
     ) -> Result<(), ContractError> {
         user.require_auth();
+        Self::_ensure_not_paused(&env)?;
 
         if amount <= 0 {
             return Err(ContractError::InvalidBetAmount);
@@ -348,6 +388,7 @@ impl VirtualTokenContract {
         predicted_price: u128,
     ) -> Result<(), ContractError> {
         user.require_auth();
+        Self::_ensure_not_paused(&env)?;
 
         if amount <= 0 {
             return Err(ContractError::InvalidBetAmount);
@@ -487,6 +528,7 @@ impl VirtualTokenContract {
             .ok_or(ContractError::OracleNotSet)?;
 
         oracle.require_auth();
+        Self::_ensure_not_paused(&env)?;
 
         let round: Round = env
             .storage()
@@ -691,6 +733,7 @@ impl VirtualTokenContract {
     /// Claims pending winnings and adds to balance
     pub fn claim_winnings(env: Env, user: Address) -> Result<i128, ContractError> {
         user.require_auth();
+        Self::_ensure_not_paused(&env)?;
 
         let key = DataKey::PendingWinnings(user.clone());
         let pending: i128 = env.storage().persistent().get(&key).unwrap_or(0);
@@ -838,6 +881,9 @@ impl VirtualTokenContract {
     /// Mints 1000 vXLM for new users (one-time only)
     pub fn mint_initial(env: Env, user: Address) -> i128 {
         user.require_auth();
+        if Self::is_paused(env.clone()) {
+            panic_with_error!(&env, ContractError::ContractPaused);
+        }
 
         let key = DataKey::Balance(user.clone());
 
@@ -869,5 +915,13 @@ impl VirtualTokenContract {
     pub(crate) fn _set_balance(env: &Env, user: Address, amount: i128) {
         let key = DataKey::Balance(user);
         env.storage().persistent().set(&key, &amount);
+    }
+
+    fn _ensure_not_paused(env: &Env) -> Result<(), ContractError> {
+        if Self::is_paused(env.clone()) {
+            return Err(ContractError::ContractPaused);
+        }
+
+        Ok(())
     }
 }
