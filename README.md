@@ -3,7 +3,7 @@
 [![CI](https://github.com/TevaLabs/Xelma-Blockchain/actions/workflows/ci.yml/badge.svg)](https://github.com/TevaLabs/Xelma-Blockchain/actions/workflows/ci.yml)
 [![Rust](https://img.shields.io/badge/Rust-1.92.0-orange.svg)](https://www.rust-lang.org/)
 [![Soroban](https://img.shields.io/badge/Soroban-23.0.1-blue.svg)](https://soroban.stellar.org/)
-[![Tests](https://img.shields.io/badge/tests-80%2F80%20passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-96%2F96%20passing-brightgreen.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > A trustless, transparent, and decentralized prediction market for XLM price movements built on Stellar blockchain using Soroban smart contracts.
@@ -126,10 +126,11 @@ Unlike traditional prediction markets, Xelma is:
 - **Language**: Rust 1.92.0
 - **Framework**: Soroban SDK 23.0.1
 - **Blockchain**: Stellar (Testnet)
-- **Testing**: 80/80 tests passing (100% coverage)
+- **Testing**: 96/96 tests passing
 
 ### Key Features:
 - ✅ Custom error handling (20 error types)
+- ✅ Emergency pause/recovery controls for incident response
 - ✅ Overflow protection (checked arithmetic)
 - ✅ Role-based access control (Admin, Oracle, User)
 - ✅ Input validation on all functions
@@ -156,6 +157,22 @@ This ensures:
 - ✅ **Zero dust loss** - Every stroops is accounted for
 - ✅ **Simple & predictable** - First predictor gets the remainder
 - ✅ **Fair distribution** - Close to equal split, minimal advantage
+
+### Emergency Pause and Recovery
+
+The contract includes an admin-controlled emergency pause for incidents such as oracle outages or critical bugs.
+
+When paused:
+- Mutating operations are rejected, including round creation, betting, resolution, claims, and token minting.
+- Read-only queries remain available so operators and users can inspect state.
+
+Recovery workflow:
+1. Admin calls `pause_contract()` to freeze high-risk operations.
+2. Investigate and fix the incident off-chain or in a patched deployment.
+3. Admin calls `unpause_contract()` once the system is safe again.
+4. Resume normal round creation and user interaction.
+
+Use `is_paused()` to verify the current contract state before attempting recovery actions.
 
 ### TypeScript Bindings
 - **Language**: TypeScript 5.6.2
