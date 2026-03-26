@@ -80,6 +80,21 @@ const contract = new Contract({
 })
 
 contract.|
-```
+# Release Policy
 
-As long as your editor is configured to show JavaScript/TypeScript documentation, you can pause your typing at that `|` to get a list of all exports and inline-documentation for each. It exports a separate [async](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/async_function) function for each method in the smart contract, with documentation for each generated from the comments the contract's author included in the original source code.
+The `@tevalabs/xelma-bindings` package follows a formal release process to ensure reliability and ABI parity with the smart contracts.
+
+## Versioning
+This package adheres to [Semantic Versioning (SemVer)](https://semver.org/):
+- **Major**: Breaking changes in the API or underlying contract structure.
+- **Minor**: New contract methods or features.
+- **Patch**: Backward-compatible bug fixes or internal improvements.
+
+## Publish Guard
+To ensure quality, every publication includes a mandatory **Publish Guard**:
+1. **Compilation**: TypeScript must compile without errors (`npm run build`).
+2. **ABI Parity**: Automated check ensuring the TS bindings match the contract methods (`npm run test:parity`).
+3. **Changelog**: A `CHANGELOG.md` entry is required for every released version.
+
+## Releasing
+Releases are managed via the **Release Bindings** workflow in GitHub Actions, which validates the package before any publication (including dry-runs).

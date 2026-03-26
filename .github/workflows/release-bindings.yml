@@ -1,0 +1,61 @@
+name: Release Bindings
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Perform a dry run'
+        type: boolean
+        required: true
+        default: true
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    name: Validate and Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Build contract (required for parity check)
+        run: cargo build --target wasm32-unknown-unknown --release --package xelma-contract
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        working-directory: bindings
+        run: npm ci
+
+      - name: Verify Changelog Entry
+        working-directory: bindings
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if ! grep -q "## \[$VERSION\]" CHANGELOG.md; then
+            echo "Error: CHANGELOG.md does not contain an entry for version $VERSION"
+            exit 1
+          fi
+          echo "Changelog entry found for version $VERSION"
+
+      - name: Run Publish Guard (Build + Parity)
+        working-directory: bindings
+        run: npm publish --dry-run
+        # This triggers 'prepublishOnly' which runs build and parity check.
+
+      - name: Simulated Release Success
+        run: echo "Release validation successful. Package is ready for publication."
