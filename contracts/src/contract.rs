@@ -7,6 +7,11 @@ use crate::types::{
     BetSide, DataKey, OraclePayload, PrecisionPrediction, Round, RoundMode, UserPosition, UserStats,
 };
 
+const DEFAULT_BET_WINDOW_LEDGERS: u32 = 6;
+const DEFAULT_RUN_WINDOW_LEDGERS: u32 = 12;
+const MAX_BET_WINDOW_LEDGERS: u32 = 1_440;
+const MAX_RUN_WINDOW_LEDGERS: u32 = 2_880;
+
 #[contract]
 pub struct VirtualTokenContract;
 
@@ -31,10 +36,10 @@ impl VirtualTokenContract {
         // Set default window values
         env.storage()
             .persistent()
-            .set(&DataKey::BetWindowLedgers, &6u32);
+            .set(&DataKey::BetWindowLedgers, &DEFAULT_BET_WINDOW_LEDGERS);
         env.storage()
             .persistent()
-            .set(&DataKey::RunWindowLedgers, &12u32);
+            .set(&DataKey::RunWindowLedgers, &DEFAULT_RUN_WINDOW_LEDGERS);
 
         Ok(())
     }
@@ -119,12 +124,12 @@ impl VirtualTokenContract {
             .storage()
             .persistent()
             .get(&DataKey::BetWindowLedgers)
-            .unwrap_or(6);
+            .unwrap_or(DEFAULT_BET_WINDOW_LEDGERS);
         let run_ledgers: u32 = env
             .storage()
             .persistent()
             .get(&DataKey::RunWindowLedgers)
-            .unwrap_or(12);
+            .unwrap_or(DEFAULT_RUN_WINDOW_LEDGERS);
 
         // Generate unique round ID
         let last_round_id: u64 = env
@@ -224,6 +229,11 @@ impl VirtualTokenContract {
         // Validate both values are positive
         if bet_ledgers == 0 || run_ledgers == 0 {
             return Err(ContractError::InvalidDuration);
+        }
+
+        // Reject out-of-range values before applying cross-field checks.
+        if bet_ledgers > MAX_BET_WINDOW_LEDGERS || run_ledgers > MAX_RUN_WINDOW_LEDGERS {
+            return Err(ContractError::WindowOutOfRange);
         }
 
         // Validate bet window closes before run window ends
@@ -346,23 +356,6 @@ impl VirtualTokenContract {
             .persistent()
             .set(&DataKey::ActiveRound, &round);
 
-        // Also keep legacy Positions storage for backwards compatibility
-        let mut legacy_positions: Map<Address, UserPosition> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::Positions)
-            .unwrap_or(Map::new(&env));
-        legacy_positions.set(
-            user.clone(),
-            UserPosition {
-                amount,
-                side: side.clone(),
-            },
-        );
-        env.storage()
-            .persistent()
-            .set(&DataKey::Positions, &legacy_positions);
-
         // Emit bet placed event
         // Topic: ("bet", "placed")
         // Payload: (user: Address, round_id: u64, amount: i128, side: u32 where 0=Up, 1=Down)
@@ -481,7 +474,17 @@ impl VirtualTokenContract {
             .get(&DataKey::UpDownPositions)
             .unwrap_or(Map::new(&env));
 
-        positions.get(user)
+        if let Some(position) = positions.get(user.clone()) {
+            return Some(position);
+        }
+
+        // Legacy read-only fallback to aid one-time migration checks.
+        let legacy_positions: Map<Address, UserPosition> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Positions)
+            .unwrap_or(Map::new(&env));
+        legacy_positions.get(user)
     }
 
     /// Returns user's precision prediction in the current round (Precision mode)

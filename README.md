@@ -127,6 +127,7 @@ Unlike traditional prediction markets, Xelma is:
 - **Framework**: Soroban SDK 23.0.1
 - **Blockchain**: Stellar (Testnet)
 - **Testing**: 96/96 tests passing
+- **Canonical crate**: `xelma-contract` (used by CI, build, and artifact paths)
 
 ### Key Features:
 - ✅ Custom error handling (20 error types)
@@ -562,7 +563,14 @@ async function watchForNewRounds(contractId: string) {
 
 ## 🤝 Contributing
 
-We welcome contributions from the community! Here's how you can help:
+We welcome contributions from the community! Start with the maintainer workflow docs:
+
+- [CONTRIBUTING.md](./CONTRIBUTING.md)
+- [GOVERNANCE.md](./GOVERNANCE.md)
+- [SUPPORT.md](./SUPPORT.md)
+- [CODEOWNERS](./.github/CODEOWNERS)
+
+Here's how you can help:
 
 ### Ways to Contribute:
 1. **Report Bugs** - Open an issue with reproduction steps

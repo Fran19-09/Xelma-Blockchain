@@ -1,0 +1,20 @@
+## Summary
+
+- What changed and why?
+
+## Linked issues
+
+- Closes #
+
+## Validation
+
+- [ ] `cargo test --workspace`
+- [ ] `cargo clippy --workspace --all-targets -- -D warnings`
+- [ ] `cargo fmt --all -- --check`
+- [ ] `cd bindings && npm ci && npm run build`
+
+## Governance checklist
+
+- [ ] I reviewed `CONTRIBUTING.md` for workflow expectations
+- [ ] I checked `CODEOWNERS` impact for touched paths
+- [ ] I followed `SUPPORT.md` disclosure guidance for any security-sensitive change

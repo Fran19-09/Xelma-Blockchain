@@ -8,6 +8,9 @@ use soroban_sdk::{
     Address, Env, IntoVal,
 };
 
+const MAX_BET_WINDOW_LEDGERS: u32 = 1_440;
+const MAX_RUN_WINDOW_LEDGERS: u32 = 2_880;
+
 #[test]
 fn test_set_windows_admin_only() {
     let env = Env::default();
@@ -130,6 +133,51 @@ fn test_set_windows_bet_must_be_less_than_run() {
 
     // Valid: bet < run
     client.set_windows(&6, &12);
+}
+
+#[test]
+fn test_set_windows_respects_max_bounds() {
+    let env = Env::default();
+    let contract_id = env.register(VirtualTokenContract, ());
+    let client = VirtualTokenContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+
+    env.mock_all_auths();
+    client.initialize(&admin, &oracle);
+
+    // Inclusive max bounds are accepted.
+    client.set_windows(&MAX_BET_WINDOW_LEDGERS, &MAX_RUN_WINDOW_LEDGERS);
+
+    // Off-by-one on either field is rejected with explicit bound error.
+    let result = client.try_set_windows(&(MAX_BET_WINDOW_LEDGERS + 1), &MAX_RUN_WINDOW_LEDGERS);
+    assert_eq!(result, Err(Ok(ContractError::WindowOutOfRange)));
+
+    let result = client.try_set_windows(&MAX_BET_WINDOW_LEDGERS, &(MAX_RUN_WINDOW_LEDGERS + 1));
+    assert_eq!(result, Err(Ok(ContractError::WindowOutOfRange)));
+}
+
+#[test]
+fn test_set_windows_does_not_mutate_state_on_validation_failure() {
+    let env = Env::default();
+    let contract_id = env.register(VirtualTokenContract, ());
+    let client = VirtualTokenContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+
+    env.mock_all_auths();
+    client.initialize(&admin, &oracle);
+    client.set_windows(&20, &40);
+
+    let result = client.try_set_windows(&41, &40);
+    assert_eq!(result, Err(Ok(ContractError::InvalidDuration)));
+
+    client.create_round(&1_0000000, &None);
+    let round = client.get_active_round().expect("Round should exist");
+    assert_eq!(round.bet_end_ledger, 20);
+    assert_eq!(round.end_ledger, 40);
 }
 
 #[test]
