@@ -230,7 +230,7 @@ fn test_multiple_rounds_lifecycle() {
         );
         env.storage()
             .persistent()
-            .set(&DataKey::Positions, &positions);
+            .set(&DataKey::UpDownPositions, &positions);
 
         let mut round: Round = env
             .storage()
@@ -275,7 +275,7 @@ fn test_multiple_rounds_lifecycle() {
         );
         env.storage()
             .persistent()
-            .set(&DataKey::Positions, &positions);
+            .set(&DataKey::UpDownPositions, &positions);
 
         let mut round: Round = env
             .storage()

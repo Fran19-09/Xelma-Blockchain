@@ -51,4 +51,6 @@ pub enum ContractError {
     AdminIsOracle = 21,
     /// Contract is paused for emergency recovery
     ContractPaused = 22,
+    /// One or more window values exceed configured maximum bounds
+    WindowOutOfRange = 23,
 }

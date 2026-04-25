@@ -114,7 +114,7 @@ fn test_accumulate_pending_winnings() {
         );
         env.storage()
             .persistent()
-            .set(&DataKey::Positions, &positions);
+            .set(&DataKey::UpDownPositions, &positions);
 
         let mut round: Round = env
             .storage()

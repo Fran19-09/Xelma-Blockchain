@@ -1,0 +1,15 @@
+# Core ownership
+* @codeX-james
+
+# Smart contract and tests
+/contracts/ @codeX-james
+/contracts/src/ @codeX-james
+
+# TypeScript bindings
+/bindings/ @codeX-james
+
+# CI/release workflows and repository policy
+/.github/workflows/ @codeX-james
+/CONTRIBUTING.md @codeX-james
+/GOVERNANCE.md @codeX-james
+/SUPPORT.md @codeX-james
