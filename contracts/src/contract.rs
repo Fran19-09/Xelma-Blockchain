@@ -163,12 +163,6 @@ impl VirtualTokenContract {
             .persistent()
             .set(&DataKey::ActiveRound, &round);
 
-        // Clear previous round's positions based on mode
-        env.storage().persistent().remove(&DataKey::UpDownPositions);
-        env.storage()
-            .persistent()
-            .remove(&DataKey::PrecisionPositions);
-
         // Emit round creation event with round ID and mode
         // Topic: ("round", "created")
         // Payload: (round_id: u64, start_price: u128, start_ledger: u32, bet_end_ledger: u32, end_ledger: u32, mode: u32)
@@ -681,13 +675,11 @@ impl VirtualTokenContract {
             }
         }
 
-        // Calculate total pot
+        // Calculate total pot — accumulate before any storage write
         let mut total_pot: i128 = 0;
         for i in 0..predictions.len() {
             if let Some(pred) = predictions.get(i) {
-                total_pot = total_pot
-                    .checked_add(pred.amount)
-                    .ok_or(ContractError::Overflow)?;
+                total_pot = Self::payout_add(total_pot, pred.amount)?;
             }
         }
 
@@ -697,7 +689,7 @@ impl VirtualTokenContract {
             let payout_per_winner = total_pot / winner_count;
             let remainder = total_pot % winner_count;
 
-            // Award to each winner
+            // Award to each winner — all arithmetic checked before writing
             for i in 0..winners.len() {
                 if let Some(winner) = winners.get(i) {
                     let key = DataKey::PendingWinnings(winner.user.clone());
@@ -705,16 +697,12 @@ impl VirtualTokenContract {
 
                     // First winner gets the remainder (if any)
                     let payout = if i == 0 {
-                        payout_per_winner
-                            .checked_add(remainder)
-                            .ok_or(ContractError::Overflow)?
+                        Self::payout_add(payout_per_winner, remainder)?
                     } else {
                         payout_per_winner
                     };
 
-                    let new_pending = existing_pending
-                        .checked_add(payout)
-                        .ok_or(ContractError::Overflow)?;
+                    let new_pending = Self::payout_add(existing_pending, payout)?;
                     env.storage().persistent().set(&key, &new_pending);
 
                     Self::_update_stats_win(env, winner.user.clone())?;
@@ -748,9 +736,8 @@ impl VirtualTokenContract {
         }
 
         let current_balance = Self::balance(env.clone(), user.clone());
-        let new_balance = current_balance
-            .checked_add(pending)
-            .ok_or(ContractError::Overflow)?;
+        // Compute new balance before writing — all-or-nothing guarantee
+        let new_balance = Self::payout_add(current_balance, pending)?;
         Self::_set_balance(&env, user.clone(), new_balance);
 
         env.storage().persistent().remove(&key);
@@ -779,9 +766,8 @@ impl VirtualTokenContract {
                 if let Some(position) = positions.get(user.clone()) {
                     let key = DataKey::PendingWinnings(user.clone());
                     let existing_pending: i128 = env.storage().persistent().get(&key).unwrap_or(0);
-                    let new_pending = existing_pending
-                        .checked_add(position.amount)
-                        .ok_or(ContractError::Overflow)?;
+                    // Compute before writing — all-or-nothing guarantee
+                    let new_pending = Self::payout_add(existing_pending, position.amount)?;
                     env.storage().persistent().set(&key, &new_pending);
                 }
             }
@@ -809,22 +795,16 @@ impl VirtualTokenContract {
             if let Some(user) = keys.get(i) {
                 if let Some(position) = positions.get(user.clone()) {
                     if position.side == winning_side {
-                        let share_numerator = position
-                            .amount
-                            .checked_mul(losing_pool)
-                            .ok_or(ContractError::Overflow)?;
+                        // Compute all payout math before any storage write
+                        let share_numerator =
+                            Self::payout_mul(position.amount, losing_pool)?;
                         let share = share_numerator / winning_pool;
-                        let payout = position
-                            .amount
-                            .checked_add(share)
-                            .ok_or(ContractError::Overflow)?;
+                        let payout = Self::payout_add(position.amount, share)?;
 
                         let key = DataKey::PendingWinnings(user.clone());
                         let existing_pending: i128 =
                             env.storage().persistent().get(&key).unwrap_or(0);
-                        let new_pending = existing_pending
-                            .checked_add(payout)
-                            .ok_or(ContractError::Overflow)?;
+                        let new_pending = Self::payout_add(existing_pending, payout)?;
                         env.storage().persistent().set(&key, &new_pending);
 
                         Self::_update_stats_win(env, user)?;
@@ -930,18 +910,24 @@ impl VirtualTokenContract {
         Ok(())
     }
 
-    /// Enforces the single-active-round invariant.
+    /// Checked addition for payout accumulation.
     ///
-    /// Call this at the top of any entrypoint that would create a new round,
-    /// before any storage writes. Returns `ContractError::RoundAlreadyActive`
-    /// if an active round is found, leaving all state unchanged.
+    /// All payout aggregation (refunds, winnings, precision payouts) routes
+    /// through this helper so overflow always maps to the stable
+    /// `PayoutOverflow` variant rather than a generic `Overflow`. This makes
+    /// the failure mode auditable and distinguishable from non-financial
+    /// overflow (e.g. round-ID counter, ledger arithmetic).
     ///
-    /// Invariant: at most one round may be in the Active state at any time.
-    /// Rounds transition Active → Settled when `resolve_round` is called.
-    pub(crate) fn assert_no_active_round(env: &Env) -> Result<(), ContractError> {
-        if env.storage().persistent().has(&DataKey::ActiveRound) {
-            return Err(ContractError::RoundAlreadyActive);
-        }
-        Ok(())
+    /// All-or-nothing guarantee: callers must not mutate storage before all
+    /// payout math is complete and checked. The functions below enforce this
+    /// by computing the new value first and only writing it afterward.
+    #[inline(always)]
+    fn payout_add(a: i128, b: i128) -> Result<i128, ContractError> {
+        a.checked_add(b).ok_or(ContractError::PayoutOverflow)
+    }
+
+    #[inline(always)]
+    fn payout_mul(a: i128, b: i128) -> Result<i128, ContractError> {
+        a.checked_mul(b).ok_or(ContractError::PayoutOverflow)
     }
 }

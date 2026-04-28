@@ -6,6 +6,7 @@ mod guard_tests;
 mod initialization;
 mod lifecycle;
 mod mode_tests;
+mod overflow_tests;
 mod pause;
 mod property_invariants;
 mod resolution;

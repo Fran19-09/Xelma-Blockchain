@@ -113,6 +113,10 @@ jobs:
         working-directory: bindings
         run: npm run build
 
+      - name: Lint TypeScript bindings
+        working-directory: bindings
+        run: npm run lint
+
       - name: Check build artifacts
         run: |
           if [ ! -f "bindings/dist/index.js" ] || [ ! -f "bindings/dist/index.d.ts" ]; then
