@@ -124,7 +124,11 @@ export const ContractError = {
   /**
    * Contract is paused for emergency recovery
    */
-  22: {message:"ContractPaused"}
+  22: {message:"ContractPaused"},
+  /**
+   * One or more window values exceed configured maximum bounds
+   */
+  23: {message:"WindowOutOfRange"}
 }
 
 /**
@@ -172,11 +176,11 @@ export interface PrecisionPrediction {
 
 export interface OraclePayload {
   price: u128;
+  timestamp: u64;
   /**
  * Round identifier that should match `Round.start_ledger`
  */
 round_id: u32;
-  timestamp: u64;
 }
 
 
