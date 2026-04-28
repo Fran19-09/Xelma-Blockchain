@@ -172,11 +172,11 @@ export interface PrecisionPrediction {
 
 export interface OraclePayload {
   price: u128;
+  timestamp: u64;
   /**
  * Round identifier that should match `Round.start_ledger`
  */
 round_id: u32;
-  timestamp: u64;
 }
 
 

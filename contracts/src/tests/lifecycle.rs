@@ -40,6 +40,32 @@ fn test_create_round() {
 }
 
 #[test]
+fn test_create_round_does_not_clear_live_positions() {
+    let env = Env::default();
+    let contract_id = env.register(VirtualTokenContract, ());
+    let client = VirtualTokenContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let user = Address::generate(&env);
+    env.mock_all_auths();
+
+    client.initialize(&admin, &oracle);
+    client.mint_initial(&user);
+    client.create_round(&1_0000000, &None);
+    client.place_bet(&user, &100_0000000, &BetSide::Up);
+
+    let before = client.get_user_position(&user);
+    assert!(before.is_some());
+
+    let result = client.try_create_round(&1_1000000, &None);
+    assert_eq!(result, Err(Ok(ContractError::RoundAlreadyActive)));
+
+    let after = client.get_user_position(&user);
+    assert_eq!(before, after);
+}
+
+#[test]
 fn test_create_round_while_active_fails() {
     let env = Env::default();
     let contract_id = env.register(VirtualTokenContract, ());
