@@ -9,4 +9,5 @@ mod pause;
 mod property_invariants;
 mod resolution;
 mod security;
+mod storage_benchmarks;
 mod windows;

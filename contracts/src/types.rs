@@ -12,6 +12,19 @@ pub enum RoundMode {
 }
 
 /// Storage keys for contract data
+///
+/// ## Indexed position keys (variants 13–15)
+///
+/// `Position(round_id, address)` and `PrecisionPosition(round_id, address)` store
+/// a single user's record under a composite key, enabling O(1) read/write per user
+/// instead of deserializing the full participant map on every bet.
+///
+/// `RoundParticipants(round_id)` holds the ordered `Vec<Address>` used for
+/// iteration at resolution time. Appending one address is cheaper than
+/// re-serialising an N-entry `Map<Address, T>` for every bet placed.
+///
+/// Legacy single-key maps (`UpDownPositions`, `PrecisionPositions`) are kept for
+/// backward-compatible reads during a migration window; they are no longer written.
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
@@ -19,15 +32,21 @@ pub enum DataKey {
     Admin,
     Oracle,
     ActiveRound,
-    Positions, // Legacy key kept for read-only migration compatibility
-    UpDownPositions,    // Map<Address, UserPosition> for Up/Down mode
-    PrecisionPositions, // Map<Address, PrecisionPrediction> for Precision mode
+    Positions, // Legacy key — read-only migration compat
+    UpDownPositions,    // Legacy key — read-only migration compat
+    PrecisionPositions, // Legacy key — read-only migration compat
     PendingWinnings(Address),
     UserStats(Address),
     Paused,
-    BetWindowLedgers, // Bet window duration in ledgers
-    RunWindowLedgers, // Run window duration in ledgers
-    LastRoundId,      // Counter for monotonically increasing round IDs
+    BetWindowLedgers,
+    RunWindowLedgers,
+    LastRoundId,
+    /// Per-user UpDown position: (round_id, address) → UserPosition
+    Position(u64, Address),
+    /// Per-user Precision prediction: (round_id, address) → PrecisionPrediction
+    PrecisionPosition(u64, Address),
+    /// Ordered participant list for a round: round_id → Vec<Address>
+    RoundParticipants(u64),
 }
 
 /// Represents which side a user bet on
