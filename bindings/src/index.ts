@@ -124,7 +124,11 @@ export const ContractError = {
   /**
    * Contract is paused for emergency recovery
    */
-  22: {message:"ContractPaused"}
+  22: {message:"ContractPaused"},
+  /**
+   * One or more window values exceed configured maximum bounds
+   */
+  23: {message:"WindowOutOfRange"}
 }
 
 /**
@@ -138,7 +142,7 @@ export enum RoundMode {
 /**
  * Storage keys for contract data
  */
-export type DataKey = {tag: "Balance", values: readonly [string]} | {tag: "Admin", values: void} | {tag: "Oracle", values: void} | {tag: "ActiveRound", values: void} | {tag: "Positions", values: void} | {tag: "UpDownPositions", values: void} | {tag: "PrecisionPositions", values: void} | {tag: "PendingWinnings", values: readonly [string]} | {tag: "UserStats", values: readonly [string]} | {tag: "Paused", values: void} | {tag: "BetWindowLedgers", values: void} | {tag: "RunWindowLedgers", values: void} | {tag: "LastRoundId", values: void};
+export type DataKey = {tag: "Balance", values: readonly [string]} | {tag: "Admin", values: void} | {tag: "Oracle", values: void} | {tag: "ActiveRound", values: void} | {tag: "Positions", values: void} | {tag: "UpDownPositions", values: void} | {tag: "PrecisionPositions", values: void} | {tag: "PendingWinnings", values: readonly [string]} | {tag: "UserStats", values: readonly [string]} | {tag: "Paused", values: void} | {tag: "BetWindowLedgers", values: void} | {tag: "RunWindowLedgers", values: void} | {tag: "LastRoundId", values: void} | {tag: "Position", values: readonly [u64, string]} | {tag: "PrecisionPosition", values: readonly [u64, string]} | {tag: "RoundParticipants", values: readonly [u64]};
 
 /**
  * Represents which side a user bet on
@@ -172,11 +176,11 @@ export interface PrecisionPrediction {
 
 export interface OraclePayload {
   price: u128;
+  timestamp: u64;
   /**
  * Round identifier that should match `Round.start_ledger`
  */
 round_id: u32;
-  timestamp: u64;
 }
 
 

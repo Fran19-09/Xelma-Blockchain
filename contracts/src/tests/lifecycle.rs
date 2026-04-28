@@ -2,11 +2,11 @@
 
 use crate::contract::{VirtualTokenContract, VirtualTokenContractClient};
 use crate::errors::ContractError;
-use crate::types::{BetSide, DataKey, OraclePayload, Round, UserPosition};
+use crate::types::{BetSide, DataKey, OraclePayload, Round};
 use soroban_sdk::{
     symbol_short,
     testutils::{Address as _, Events, Ledger as _},
-    Address, Env, IntoVal, Map, TryIntoVal,
+    Address, Env, IntoVal, TryIntoVal,
 };
 
 #[test]
@@ -37,6 +37,32 @@ fn test_create_round() {
     // Note: In tests, current ledger starts at 0
     assert_eq!(round.bet_end_ledger, 6);
     assert_eq!(round.end_ledger, 12);
+}
+
+#[test]
+fn test_create_round_does_not_clear_live_positions() {
+    let env = Env::default();
+    let contract_id = env.register(VirtualTokenContract, ());
+    let client = VirtualTokenContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let user = Address::generate(&env);
+    env.mock_all_auths();
+
+    client.initialize(&admin, &oracle);
+    client.mint_initial(&user);
+    client.create_round(&1_0000000, &None);
+    client.place_bet(&user, &100_0000000, &BetSide::Up);
+
+    let before = client.get_user_position(&user);
+    assert!(before.is_some());
+
+    let result = client.try_create_round(&1_1000000, &None);
+    assert_eq!(result, Err(Ok(ContractError::RoundAlreadyActive)));
+
+    let after = client.get_user_position(&user);
+    assert_eq!(before, after);
 }
 
 #[test]
@@ -220,18 +246,8 @@ fn test_multiple_rounds_lifecycle() {
     client.place_bet(&alice, &100_0000000, &BetSide::Up);
 
     env.as_contract(&contract_id, || {
-        let mut positions = Map::<Address, UserPosition>::new(&env);
-        positions.set(
-            alice.clone(),
-            UserPosition {
-                amount: 100_0000000,
-                side: BetSide::Up,
-            },
-        );
-        env.storage()
-            .persistent()
-            .set(&DataKey::UpDownPositions, &positions);
-
+        // alice's position is already stored under DataKey::Position by place_bet;
+        // we only override the round pool totals to inject a simulated losing pool.
         let mut round: Round = env
             .storage()
             .persistent()
@@ -265,18 +281,6 @@ fn test_multiple_rounds_lifecycle() {
     client.place_bet(&alice, &100_0000000, &BetSide::Down);
 
     env.as_contract(&contract_id, || {
-        let mut positions = Map::<Address, UserPosition>::new(&env);
-        positions.set(
-            alice.clone(),
-            UserPosition {
-                amount: 100_0000000,
-                side: BetSide::Down,
-            },
-        );
-        env.storage()
-            .persistent()
-            .set(&DataKey::UpDownPositions, &positions);
-
         let mut round: Round = env
             .storage()
             .persistent()

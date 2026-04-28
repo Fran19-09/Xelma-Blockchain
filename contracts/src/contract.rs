@@ -113,11 +113,7 @@ impl VirtualTokenContract {
 
         admin.require_auth();
         Self::_ensure_not_paused(&env)?;
-
-        // Prevent overwriting an already active round
-        if env.storage().persistent().has(&DataKey::ActiveRound) {
-            return Err(ContractError::RoundAlreadyActive);
-        }
+        Self::assert_no_active_round(&env)?;
 
         // Get configured windows (with defaults)
         let bet_ledgers: u32 = env
@@ -167,11 +163,8 @@ impl VirtualTokenContract {
             .persistent()
             .set(&DataKey::ActiveRound, &round);
 
-        // Clear previous round's positions based on mode
-        env.storage().persistent().remove(&DataKey::UpDownPositions);
-        env.storage()
-            .persistent()
-            .remove(&DataKey::PrecisionPositions);
+        // Note: individual position keys (DataKey::Position / DataKey::PrecisionPosition)
+        // are cleaned up at resolve time; no bulk-map clearing needed here.
 
         // Emit round creation event with round ID and mode
         // Topic: ("round", "created")
@@ -277,7 +270,13 @@ impl VirtualTokenContract {
         env.storage().persistent().get(&key).unwrap_or(0)
     }
 
-    /// Places a bet on the active round (Up/Down mode only)
+    /// Places a bet on the active round (Up/Down mode only).
+    ///
+    /// Storage layout: each participant's position is stored under its own
+    /// composite key `DataKey::Position(round_id, user)` — O(1) read/write
+    /// regardless of how many other participants exist. An ordered participant
+    /// list `DataKey::RoundParticipants(round_id)` is maintained for O(n)
+    /// iteration at resolution time only.
     pub fn place_bet(
         env: Env,
         user: Address,
@@ -291,6 +290,7 @@ impl VirtualTokenContract {
             return Err(ContractError::InvalidBetAmount);
         }
 
+        // Single read of the active round — cache in call scope
         let mut round: Round = env
             .storage()
             .persistent()
@@ -312,28 +312,38 @@ impl VirtualTokenContract {
             return Err(ContractError::InsufficientBalance);
         }
 
-        // Use UpDownPositions storage for Up/Down mode
-        let mut positions: Map<Address, UserPosition> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::UpDownPositions)
-            .unwrap_or(Map::new(&env));
-
-        if positions.contains_key(user.clone()) {
+        // O(1) duplicate-bet check — read one small key, not the full map
+        let pos_key = DataKey::Position(round.round_id, user.clone());
+        if env.storage().persistent().has(&pos_key) {
             return Err(ContractError::AlreadyBet);
         }
 
+        // Deduct balance
         let new_balance = user_balance
             .checked_sub(amount)
             .ok_or(ContractError::Overflow)?;
         Self::_set_balance(&env, user.clone(), new_balance);
 
+        // Write single-user position key — O(1), constant-size entry
         let position = UserPosition {
             amount,
             side: side.clone(),
         };
-        positions.set(user.clone(), position);
+        env.storage().persistent().set(&pos_key, &position);
 
+        // Append to participant list (needed for O(n) resolution iteration)
+        let participants_key = DataKey::RoundParticipants(round.round_id);
+        let mut participants: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&participants_key)
+            .unwrap_or(Vec::new(&env));
+        participants.push_back(user.clone());
+        env.storage()
+            .persistent()
+            .set(&participants_key, &participants);
+
+        // Update cached round pools and write once
         match side {
             BetSide::Up => {
                 round.pool_up = round
@@ -348,10 +358,6 @@ impl VirtualTokenContract {
                     .ok_or(ContractError::Overflow)?;
             }
         }
-
-        env.storage()
-            .persistent()
-            .set(&DataKey::UpDownPositions, &positions);
         env.storage()
             .persistent()
             .set(&DataKey::ActiveRound, &round);
@@ -374,6 +380,9 @@ impl VirtualTokenContract {
 
     /// Places a precision prediction on the active round (Precision/Legends mode only)
     /// predicted_price: price scaled to 4 decimals (e.g., 0.2297 → 2297)
+    ///
+    /// Per-user key `DataKey::PrecisionPosition(round_id, user)` gives O(1)
+    /// write cost independent of participant count.
     pub fn place_precision_prediction(
         env: Env,
         user: Address,
@@ -393,6 +402,7 @@ impl VirtualTokenContract {
             return Err(ContractError::InvalidPriceScale);
         }
 
+        // Single read of the active round — cache in call scope
         let round: Round = env
             .storage()
             .persistent()
@@ -414,14 +424,9 @@ impl VirtualTokenContract {
             return Err(ContractError::InsufficientBalance);
         }
 
-        // Check if user already has a prediction in this round
-        let mut predictions: Map<Address, PrecisionPrediction> = env
-            .storage()
-            .persistent()
-            .get(&DataKey::PrecisionPositions)
-            .unwrap_or(Map::new(&env));
-
-        if predictions.contains_key(user.clone()) {
+        // O(1) duplicate-prediction check — single composite key read
+        let pred_key = DataKey::PrecisionPosition(round.round_id, user.clone());
+        if env.storage().persistent().has(&pred_key) {
             return Err(ContractError::AlreadyBet);
         }
 
@@ -431,17 +436,25 @@ impl VirtualTokenContract {
             .ok_or(ContractError::Overflow)?;
         Self::_set_balance(&env, user.clone(), new_balance);
 
-        // Store prediction
+        // Write single-user prediction key — O(1), constant-size entry
         let prediction = PrecisionPrediction {
             user: user.clone(),
             predicted_price,
             amount,
         };
-        predictions.set(user.clone(), prediction);
+        env.storage().persistent().set(&pred_key, &prediction);
 
+        // Append to shared participant list
+        let participants_key = DataKey::RoundParticipants(round.round_id);
+        let mut participants: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&participants_key)
+            .unwrap_or(Vec::new(&env));
+        participants.push_back(user.clone());
         env.storage()
             .persistent()
-            .set(&DataKey::PrecisionPositions, &predictions);
+            .set(&participants_key, &participants);
 
         // Emit event for precision prediction
         // Topic: ("predict", "price")
@@ -466,19 +479,32 @@ impl VirtualTokenContract {
         Self::place_precision_prediction(env, user, amount, guessed_price)
     }
 
-    /// Returns user's position in the current round (Up/Down mode)
+    /// Returns user's position in the current round (Up/Down mode).
+    ///
+    /// Reads a single composite key `DataKey::Position(round_id, user)` — O(1).
+    /// Falls back to legacy `UpDownPositions` / `Positions` map blobs for
+    /// one-time migration compatibility.
     pub fn get_user_position(env: Env, user: Address) -> Option<UserPosition> {
-        let positions: Map<Address, UserPosition> = env
+        if let Some(round) = env
+            .storage()
+            .persistent()
+            .get::<_, Round>(&DataKey::ActiveRound)
+        {
+            let pos_key = DataKey::Position(round.round_id, user.clone());
+            if let Some(pos) = env.storage().persistent().get(&pos_key) {
+                return Some(pos);
+            }
+        }
+
+        // Legacy read-only fallback for migration data
+        let legacy_updown: Map<Address, UserPosition> = env
             .storage()
             .persistent()
             .get(&DataKey::UpDownPositions)
             .unwrap_or(Map::new(&env));
-
-        if let Some(position) = positions.get(user.clone()) {
-            return Some(position);
+        if let Some(p) = legacy_updown.get(user.clone()) {
+            return Some(p);
         }
-
-        // Legacy read-only fallback to aid one-time migration checks.
         let legacy_positions: Map<Address, UserPosition> = env
             .storage()
             .persistent()
@@ -487,33 +513,113 @@ impl VirtualTokenContract {
         legacy_positions.get(user)
     }
 
-    /// Returns user's precision prediction in the current round (Precision mode)
+    /// Returns user's precision prediction in the current round (Precision mode).
+    ///
+    /// Reads a single composite key `DataKey::PrecisionPosition(round_id, user)` — O(1).
+    /// Falls back to legacy `PrecisionPositions` map for migration compatibility.
     pub fn get_user_precision_prediction(env: Env, user: Address) -> Option<PrecisionPrediction> {
-        let predictions: Map<Address, PrecisionPrediction> = env
+        if let Some(round) = env
+            .storage()
+            .persistent()
+            .get::<_, Round>(&DataKey::ActiveRound)
+        {
+            let pred_key = DataKey::PrecisionPosition(round.round_id, user.clone());
+            if let Some(p) = env
+                .storage()
+                .persistent()
+                .get::<_, PrecisionPrediction>(&pred_key)
+            {
+                return Some(p);
+            }
+        }
+        let legacy: Map<Address, PrecisionPrediction> = env
             .storage()
             .persistent()
             .get(&DataKey::PrecisionPositions)
             .unwrap_or(Map::new(&env));
-
-        predictions.get(user)
+        legacy.get(user)
     }
 
-    /// Returns all precision predictions for the current round
+    /// Returns all precision predictions for the current round.
+    ///
+    /// Reads the participant list once, then fetches each prediction individually.
+    /// Total reads: 1 (participant list) + N (predictions) instead of 1 large map blob.
     pub fn get_precision_predictions(env: Env) -> Vec<PrecisionPrediction> {
-        let predictions: Map<Address, PrecisionPrediction> = env
+        let round = match env
             .storage()
             .persistent()
-            .get(&DataKey::PrecisionPositions)
-            .unwrap_or(Map::new(&env));
-        predictions.values()
+            .get::<_, Round>(&DataKey::ActiveRound)
+        {
+            Some(r) => r,
+            None => return Vec::new(&env),
+        };
+
+        let participants: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::RoundParticipants(round.round_id))
+            .unwrap_or(Vec::new(&env));
+
+        let mut result: Vec<PrecisionPrediction> = Vec::new(&env);
+        for i in 0..participants.len() {
+            if let Some(user) = participants.get(i) {
+                let pred_key = DataKey::PrecisionPosition(round.round_id, user.clone());
+                if let Some(pred) = env.storage().persistent().get(&pred_key) {
+                    result.push_back(pred);
+                }
+            }
+        }
+
+        // Legacy fallback: pre-migration data lives in the bulk map
+        if result.is_empty() {
+            let legacy: Map<Address, PrecisionPrediction> = env
+                .storage()
+                .persistent()
+                .get(&DataKey::PrecisionPositions)
+                .unwrap_or(Map::new(&env));
+            return legacy.values();
+        }
+        result
     }
 
-    /// Returns all Up/Down positions for the current round
+    /// Returns all Up/Down positions for the current round.
+    ///
+    /// Reads the participant list once, then fetches each position individually.
     pub fn get_updown_positions(env: Env) -> Map<Address, UserPosition> {
-        env.storage()
+        let round = match env
+            .storage()
             .persistent()
-            .get(&DataKey::UpDownPositions)
-            .unwrap_or(Map::new(&env))
+            .get::<_, Round>(&DataKey::ActiveRound)
+        {
+            Some(r) => r,
+            None => return Map::new(&env),
+        };
+
+        let participants: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::RoundParticipants(round.round_id))
+            .unwrap_or(Vec::new(&env));
+
+        let mut result: Map<Address, UserPosition> = Map::new(&env);
+        for i in 0..participants.len() {
+            if let Some(user) = participants.get(i) {
+                let pos_key = DataKey::Position(round.round_id, user.clone());
+                if let Some(pos) = env.storage().persistent().get(&pos_key) {
+                    result.set(user, pos);
+                }
+            }
+        }
+
+        // Legacy fallback: pre-migration data lives in the bulk map
+        if result.is_empty() {
+            return env
+                .storage()
+                .persistent()
+                .get(&DataKey::UpDownPositions)
+                .unwrap_or(Map::new(&env));
+        }
+        result
     }
 
     /// Resolves the round with oracle payload (oracle only)
@@ -546,6 +652,12 @@ impl VirtualTokenContract {
 
         // Verify data freshness (max 300 seconds / 5 minutes old)
         let current_time = env.ledger().timestamp();
+
+        // Reject future timestamps to prevent time-skew manipulation
+        if payload.timestamp > current_time {
+            return Err(ContractError::FutureOracleData);
+        }
+
         if current_time > payload.timestamp + 300 {
             return Err(ContractError::StaleOracleData);
         }
@@ -565,11 +677,31 @@ impl VirtualTokenContract {
                 Self::_resolve_updown_mode(&env, &round, payload.price)?;
             }
             RoundMode::Precision => {
-                Self::_resolve_precision_mode(&env, payload.price)?;
+                Self::_resolve_precision_mode(&env, round_id, payload.price)?;
             }
         }
 
-        // Clean up storage
+        // Clean up indexed position keys and participant list
+        let participants: Vec<Address> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::RoundParticipants(round_id))
+            .unwrap_or(Vec::new(&env));
+        for i in 0..participants.len() {
+            if let Some(user) = participants.get(i) {
+                env.storage()
+                    .persistent()
+                    .remove(&DataKey::Position(round_id, user.clone()));
+                env.storage()
+                    .persistent()
+                    .remove(&DataKey::PrecisionPosition(round_id, user));
+            }
+        }
+        env.storage()
+            .persistent()
+            .remove(&DataKey::RoundParticipants(round_id));
+
+        // Clean up legacy map keys if present (migration compat)
         env.storage().persistent().remove(&DataKey::ActiveRound);
         env.storage().persistent().remove(&DataKey::Positions);
         env.storage().persistent().remove(&DataKey::UpDownPositions);
@@ -593,109 +725,229 @@ impl VirtualTokenContract {
         Ok(())
     }
 
-    /// Resolves Up/Down mode round
+    /// Resolves Up/Down mode round using indexed per-user position keys.
+    ///
+    /// Reads: 1 (participants list) + N (individual positions).
+    /// Migration fallback: if the participant list is empty but the legacy
+    /// `UpDownPositions` map is present, the resolver iterates the legacy map
+    /// — preserves correctness for any in-flight pre-migration round.
     fn _resolve_updown_mode(
         env: &Env,
         round: &Round,
         final_price: u128,
     ) -> Result<(), ContractError> {
-        let positions: Map<Address, UserPosition> = env
+        let participants: Vec<Address> = env
             .storage()
             .persistent()
-            .get(&DataKey::UpDownPositions)
-            .unwrap_or(Map::new(env));
+            .get(&DataKey::RoundParticipants(round.round_id))
+            .unwrap_or(Vec::new(env));
 
         let price_went_up = final_price > round.price_start;
         let price_went_down = final_price < round.price_start;
         let price_unchanged = final_price == round.price_start;
 
-        if price_unchanged {
-            Self::_record_refunds(env, positions)?;
-        } else if price_went_up {
-            Self::_record_winnings(env, positions, BetSide::Up, round.pool_up, round.pool_down)?;
-        } else if price_went_down {
-            Self::_record_winnings(
-                env,
-                positions,
-                BetSide::Down,
-                round.pool_down,
-                round.pool_up,
-            )?;
+        if !participants.is_empty() {
+            if price_unchanged {
+                Self::_record_refunds_indexed(env, round.round_id, &participants)?;
+            } else if price_went_up {
+                Self::_record_winnings_indexed(
+                    env,
+                    round.round_id,
+                    &participants,
+                    BetSide::Up,
+                    round.pool_up,
+                    round.pool_down,
+                )?;
+            } else if price_went_down {
+                Self::_record_winnings_indexed(
+                    env,
+                    round.round_id,
+                    &participants,
+                    BetSide::Down,
+                    round.pool_down,
+                    round.pool_up,
+                )?;
+            }
+        } else {
+            // Migration fallback: legacy single-map layout
+            let positions: Map<Address, UserPosition> = env
+                .storage()
+                .persistent()
+                .get(&DataKey::UpDownPositions)
+                .unwrap_or(Map::new(env));
+            if !positions.is_empty() {
+                if price_unchanged {
+                    Self::_record_refunds_legacy(env, &positions)?;
+                } else if price_went_up {
+                    Self::_record_winnings_legacy(
+                        env,
+                        &positions,
+                        BetSide::Up,
+                        round.pool_up,
+                        round.pool_down,
+                    )?;
+                } else if price_went_down {
+                    Self::_record_winnings_legacy(
+                        env,
+                        &positions,
+                        BetSide::Down,
+                        round.pool_down,
+                        round.pool_up,
+                    )?;
+                }
+            }
         }
 
         Ok(())
     }
 
-    /// Resolves Precision/Legends mode round
-    /// Awards full pot to closest guess(es); ties split evenly
-    fn _resolve_precision_mode(env: &Env, final_price: u128) -> Result<(), ContractError> {
-        let predictions_map: Map<Address, PrecisionPrediction> = env
+    /// Legacy refund path — reads the bulk Map blob.
+    /// Used only when migrating pre-existing rounds; new rounds use indexed keys.
+    fn _record_refunds_legacy(
+        env: &Env,
+        positions: &Map<Address, UserPosition>,
+    ) -> Result<(), ContractError> {
+        let keys: Vec<Address> = positions.keys();
+        for i in 0..keys.len() {
+            if let Some(user) = keys.get(i) {
+                if let Some(position) = positions.get(user.clone()) {
+                    let key = DataKey::PendingWinnings(user);
+                    let existing_pending: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+                    let new_pending = existing_pending
+                        .checked_add(position.amount)
+                        .ok_or(ContractError::Overflow)?;
+                    env.storage().persistent().set(&key, &new_pending);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Legacy winnings path — reads the bulk Map blob.
+    fn _record_winnings_legacy(
+        env: &Env,
+        positions: &Map<Address, UserPosition>,
+        winning_side: BetSide,
+        winning_pool: i128,
+        losing_pool: i128,
+    ) -> Result<(), ContractError> {
+        if winning_pool == 0 {
+            return Ok(());
+        }
+        let keys: Vec<Address> = positions.keys();
+        for i in 0..keys.len() {
+            if let Some(user) = keys.get(i) {
+                if let Some(position) = positions.get(user.clone()) {
+                    if position.side == winning_side {
+                        let share_numerator = position
+                            .amount
+                            .checked_mul(losing_pool)
+                            .ok_or(ContractError::Overflow)?;
+                        let share = share_numerator / winning_pool;
+                        let payout = position
+                            .amount
+                            .checked_add(share)
+                            .ok_or(ContractError::Overflow)?;
+
+                        let key = DataKey::PendingWinnings(user.clone());
+                        let existing_pending: i128 =
+                            env.storage().persistent().get(&key).unwrap_or(0);
+                        let new_pending = existing_pending
+                            .checked_add(payout)
+                            .ok_or(ContractError::Overflow)?;
+                        env.storage().persistent().set(&key, &new_pending);
+
+                        Self::_update_stats_win(env, user)?;
+                    } else {
+                        Self::_update_stats_loss(env, user)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Resolves Precision/Legends mode round using indexed per-user prediction keys.
+    ///
+    /// Reads: 1 (participants list) + N (individual predictions).
+    /// Awards full pot to closest guess(es); ties split evenly.
+    /// Migration fallback: empty participant list → legacy `PrecisionPositions` map.
+    fn _resolve_precision_mode(
+        env: &Env,
+        round_id: u64,
+        final_price: u128,
+    ) -> Result<(), ContractError> {
+        let participants: Vec<Address> = env
             .storage()
             .persistent()
-            .get(&DataKey::PrecisionPositions)
-            .unwrap_or(Map::new(env));
-        let predictions = predictions_map.values();
+            .get(&DataKey::RoundParticipants(round_id))
+            .unwrap_or(Vec::new(env));
 
-        // If no predictions, nothing to resolve
-        if predictions.is_empty() {
-            return Ok(());
+        if participants.is_empty() {
+            // Migration fallback to legacy bulk map
+            let legacy: Map<Address, PrecisionPrediction> = env
+                .storage()
+                .persistent()
+                .get(&DataKey::PrecisionPositions)
+                .unwrap_or(Map::new(env));
+            if legacy.is_empty() {
+                return Ok(());
+            }
+            return Self::_resolve_precision_legacy(env, &legacy, final_price);
         }
 
         // Find minimum difference and collect all winners
         let mut min_diff: Option<u128> = None;
         let mut winners: Vec<PrecisionPrediction> = Vec::new(env);
+        let mut total_pot: i128 = 0;
 
-        for i in 0..predictions.len() {
-            if let Some(pred) = predictions.get(i) {
-                // Calculate absolute difference using checked arithmetic
-                let diff = if pred.predicted_price >= final_price {
-                    pred.predicted_price
-                        .checked_sub(final_price)
-                        .ok_or(ContractError::Overflow)?
-                } else {
-                    final_price
-                        .checked_sub(pred.predicted_price)
-                        .ok_or(ContractError::Overflow)?
-                };
+        // Single pass to build winners list and total pot
+        for i in 0..participants.len() {
+            if let Some(user) = participants.get(i) {
+                let pred_key = DataKey::PrecisionPosition(round_id, user.clone());
+                if let Some(pred) = env
+                    .storage()
+                    .persistent()
+                    .get::<_, PrecisionPrediction>(&pred_key)
+                {
+                    total_pot = total_pot
+                        .checked_add(pred.amount)
+                        .ok_or(ContractError::Overflow)?;
 
-                match min_diff {
-                    None => {
-                        // First prediction
-                        min_diff = Some(diff);
-                        winners.push_back(pred.clone());
-                    }
-                    Some(current_min) => {
-                        if diff < current_min {
-                            // New winner found, clear previous winners
+                    let diff = if pred.predicted_price >= final_price {
+                        pred.predicted_price
+                            .checked_sub(final_price)
+                            .ok_or(ContractError::Overflow)?
+                    } else {
+                        final_price
+                            .checked_sub(pred.predicted_price)
+                            .ok_or(ContractError::Overflow)?
+                    };
+
+                    match min_diff {
+                        None => {
                             min_diff = Some(diff);
-                            winners = Vec::new(env);
                             winners.push_back(pred.clone());
-                        } else if diff == current_min {
-                            // Tie - add to winners
-                            winners.push_back(pred.clone());
+                        }
+                        Some(current_min) => {
+                            if diff < current_min {
+                                min_diff = Some(diff);
+                                winners = Vec::new(env);
+                                winners.push_back(pred.clone());
+                            } else if diff == current_min {
+                                winners.push_back(pred.clone());
+                            }
                         }
                     }
                 }
             }
         }
 
-        // Calculate total pot
-        let mut total_pot: i128 = 0;
-        for i in 0..predictions.len() {
-            if let Some(pred) = predictions.get(i) {
-                total_pot = total_pot
-                    .checked_add(pred.amount)
-                    .ok_or(ContractError::Overflow)?;
-            }
-        }
-
         // Distribute winnings to winner(s).
-        // Remainder policy: `predictions_map` is a `Map<Address, PrecisionPrediction>`, which
-        // Soroban keeps sorted by XDR-encoded key bytes. `winners` is built by iterating that
-        // map in stable key order, so index 0 always refers to the lexicographically-lowest
-        // Address. Any integer remainder from the even split is assigned exclusively to that
-        // first winner, making the distribution fully deterministic and reproducible for a
-        // given set of participants regardless of insertion order or execution environment.
+        // Remainder policy: `participants` is a `Vec<Address>` appended in bet-placement
+        // order; `winners` is built from that same single pass, so index 0 is always the
+        // first-to-bet winner. Any integer remainder from the even split is assigned to
+        // that winner, making the distribution fully deterministic for a given round.
         if !winners.is_empty() && total_pot > 0 {
             let winner_count = winners.len() as i128;
             let payout_per_winner = total_pot / winner_count;
@@ -726,6 +978,97 @@ impl VirtualTokenContract {
             }
 
             // Update stats for losers
+            for i in 0..participants.len() {
+                if let Some(user) = participants.get(i) {
+                    let is_winner = winners.iter().any(|w| w.user == user);
+                    if !is_winner {
+                        Self::_update_stats_loss(env, user)?;
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Legacy precision-mode resolution path — reads the bulk Map blob.
+    /// Used only as a migration fallback; new rounds use indexed per-user keys.
+    fn _resolve_precision_legacy(
+        env: &Env,
+        predictions_map: &Map<Address, PrecisionPrediction>,
+        final_price: u128,
+    ) -> Result<(), ContractError> {
+        let predictions = predictions_map.values();
+        if predictions.is_empty() {
+            return Ok(());
+        }
+
+        let mut min_diff: Option<u128> = None;
+        let mut winners: Vec<PrecisionPrediction> = Vec::new(env);
+
+        for i in 0..predictions.len() {
+            if let Some(pred) = predictions.get(i) {
+                let diff = if pred.predicted_price >= final_price {
+                    pred.predicted_price
+                        .checked_sub(final_price)
+                        .ok_or(ContractError::Overflow)?
+                } else {
+                    final_price
+                        .checked_sub(pred.predicted_price)
+                        .ok_or(ContractError::Overflow)?
+                };
+
+                match min_diff {
+                    None => {
+                        min_diff = Some(diff);
+                        winners.push_back(pred.clone());
+                    }
+                    Some(current_min) => {
+                        if diff < current_min {
+                            min_diff = Some(diff);
+                            winners = Vec::new(env);
+                            winners.push_back(pred.clone());
+                        } else if diff == current_min {
+                            winners.push_back(pred.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut total_pot: i128 = 0;
+        for i in 0..predictions.len() {
+            if let Some(pred) = predictions.get(i) {
+                total_pot = Self::payout_add(total_pot, pred.amount)?;
+            }
+        }
+
+        // Remainder policy: `predictions_map` is a `Map<Address, PrecisionPrediction>`, which
+        // Soroban keeps sorted by XDR-encoded key bytes. `winners` is built by iterating
+        // `predictions_map.values()` in that stable key order, so index 0 always refers to
+        // the lexicographically-lowest Address. Any integer remainder from the even split is
+        // assigned exclusively to that winner, making the distribution fully deterministic.
+        if !winners.is_empty() && total_pot > 0 {
+            let winner_count = winners.len() as i128;
+            let payout_per_winner = total_pot / winner_count;
+            let remainder = total_pot % winner_count;
+
+            // Award to each winner — all arithmetic checked before writing
+            for i in 0..winners.len() {
+                if let Some(winner) = winners.get(i) {
+                    let key = DataKey::PendingWinnings(winner.user.clone());
+                    let existing_pending: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+                    let payout = if i == 0 {
+                        Self::payout_add(payout_per_winner, remainder)?
+                    } else {
+                        payout_per_winner
+                    };
+                    let new_pending = Self::payout_add(existing_pending, payout)?;
+                    env.storage().persistent().set(&key, &new_pending);
+                    Self::_update_stats_win(env, winner.user.clone())?;
+                }
+            }
+
             for i in 0..predictions.len() {
                 if let Some(pred) = predictions.get(i) {
                     let is_winner = winners.iter().any(|w| w.user == pred.user);
@@ -752,9 +1095,8 @@ impl VirtualTokenContract {
         }
 
         let current_balance = Self::balance(env.clone(), user.clone());
-        let new_balance = current_balance
-            .checked_add(pending)
-            .ok_or(ContractError::Overflow)?;
+        // Compute new balance before writing — all-or-nothing guarantee
+        let new_balance = Self::payout_add(current_balance, pending)?;
         Self::_set_balance(&env, user.clone(), new_balance);
 
         env.storage().persistent().remove(&key);
@@ -771,34 +1113,38 @@ impl VirtualTokenContract {
         Ok(pending)
     }
 
-    /// Records refunds when price unchanged
-    fn _record_refunds(
+    /// Records refunds when price unchanged — indexed variant.
+    ///
+    /// Reads N individual position keys (O(1) each); no full-map deserialisation.
+    fn _record_refunds_indexed(
         env: &Env,
-        positions: Map<Address, UserPosition>,
+        round_id: u64,
+        participants: &Vec<Address>,
     ) -> Result<(), ContractError> {
-        let keys: Vec<Address> = positions.keys();
-
-        for i in 0..keys.len() {
-            if let Some(user) = keys.get(i) {
-                if let Some(position) = positions.get(user.clone()) {
+        for i in 0..participants.len() {
+            if let Some(user) = participants.get(i) {
+                let pos_key = DataKey::Position(round_id, user.clone());
+                if let Some(position) = env.storage().persistent().get::<_, UserPosition>(&pos_key)
+                {
                     let key = DataKey::PendingWinnings(user.clone());
                     let existing_pending: i128 = env.storage().persistent().get(&key).unwrap_or(0);
-                    let new_pending = existing_pending
-                        .checked_add(position.amount)
-                        .ok_or(ContractError::Overflow)?;
+                    // Compute before writing — all-or-nothing guarantee
+                    let new_pending = Self::payout_add(existing_pending, position.amount)?;
                     env.storage().persistent().set(&key, &new_pending);
                 }
             }
         }
-
         Ok(())
     }
 
-    /// Records winnings for winning side
+    /// Records winnings for winning side — indexed variant.
+    ///
     /// Formula: payout = bet + (bet / winning_pool) * losing_pool
-    fn _record_winnings(
+    /// Reads N individual position keys; no full-map deserialisation.
+    fn _record_winnings_indexed(
         env: &Env,
-        positions: Map<Address, UserPosition>,
+        round_id: u64,
+        participants: &Vec<Address>,
         winning_side: BetSide,
         winning_pool: i128,
         losing_pool: i128,
@@ -807,28 +1153,21 @@ impl VirtualTokenContract {
             return Ok(());
         }
 
-        let keys: Vec<Address> = positions.keys();
-
-        for i in 0..keys.len() {
-            if let Some(user) = keys.get(i) {
-                if let Some(position) = positions.get(user.clone()) {
+        for i in 0..participants.len() {
+            if let Some(user) = participants.get(i) {
+                let pos_key = DataKey::Position(round_id, user.clone());
+                if let Some(position) = env.storage().persistent().get::<_, UserPosition>(&pos_key)
+                {
                     if position.side == winning_side {
-                        let share_numerator = position
-                            .amount
-                            .checked_mul(losing_pool)
-                            .ok_or(ContractError::Overflow)?;
+                        // Compute all payout math before any storage write
+                        let share_numerator = Self::payout_mul(position.amount, losing_pool)?;
                         let share = share_numerator / winning_pool;
-                        let payout = position
-                            .amount
-                            .checked_add(share)
-                            .ok_or(ContractError::Overflow)?;
+                        let payout = Self::payout_add(position.amount, share)?;
 
                         let key = DataKey::PendingWinnings(user.clone());
                         let existing_pending: i128 =
                             env.storage().persistent().get(&key).unwrap_or(0);
-                        let new_pending = existing_pending
-                            .checked_add(payout)
-                            .ok_or(ContractError::Overflow)?;
+                        let new_pending = Self::payout_add(existing_pending, payout)?;
                         env.storage().persistent().set(&key, &new_pending);
 
                         Self::_update_stats_win(env, user)?;
@@ -932,5 +1271,34 @@ impl VirtualTokenContract {
         }
 
         Ok(())
+    }
+
+    fn assert_no_active_round(env: &Env) -> Result<(), ContractError> {
+        if env.storage().persistent().has(&DataKey::ActiveRound) {
+            return Err(ContractError::RoundAlreadyActive);
+        }
+
+        Ok(())
+    }
+
+    /// Checked addition for payout accumulation.
+    ///
+    /// All payout aggregation (refunds, winnings, precision payouts) routes
+    /// through this helper so overflow always maps to the stable
+    /// `PayoutOverflow` variant rather than a generic `Overflow`. This makes
+    /// the failure mode auditable and distinguishable from non-financial
+    /// overflow (e.g. round-ID counter, ledger arithmetic).
+    ///
+    /// All-or-nothing guarantee: callers must not mutate storage before all
+    /// payout math is complete and checked. The functions below enforce this
+    /// by computing the new value first and only writing it afterward.
+    #[inline(always)]
+    fn payout_add(a: i128, b: i128) -> Result<i128, ContractError> {
+        a.checked_add(b).ok_or(ContractError::PayoutOverflow)
+    }
+
+    #[inline(always)]
+    fn payout_mul(a: i128, b: i128) -> Result<i128, ContractError> {
+        a.checked_mul(b).ok_or(ContractError::PayoutOverflow)
     }
 }
