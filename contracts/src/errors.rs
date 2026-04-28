@@ -55,4 +55,6 @@ pub enum ContractError {
     WindowOutOfRange = 23,
     /// Oracle payload timestamp is in the future
     FutureOracleData = 24,
+    /// Arithmetic overflow in payout accumulation — no funds moved
+    PayoutOverflow = 25,
 }
