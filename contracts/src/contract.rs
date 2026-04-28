@@ -167,12 +167,6 @@ impl VirtualTokenContract {
             .persistent()
             .set(&DataKey::ActiveRound, &round);
 
-        // Clear previous round's positions based on mode
-        env.storage().persistent().remove(&DataKey::UpDownPositions);
-        env.storage()
-            .persistent()
-            .remove(&DataKey::PrecisionPositions);
-
         // Emit round creation event with round ID and mode
         // Topic: ("round", "created")
         // Payload: (round_id: u64, start_price: u128, start_ledger: u32, bet_end_ledger: u32, end_ledger: u32, mode: u32)
