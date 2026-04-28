@@ -128,15 +128,7 @@ export const ContractError = {
   /**
    * One or more window values exceed configured maximum bounds
    */
-  23: {message:"WindowOutOfRange"},
-  /**
-   * Oracle payload timestamp is in the future
-   */
-  24: {message:"FutureOracleData"},
-  /**
-   * Arithmetic overflow in payout accumulation — no funds moved
-   */
-  25: {message:"PayoutOverflow"}
+  23: {message:"WindowOutOfRange"}
 }
 
 /**
@@ -184,11 +176,11 @@ export interface PrecisionPrediction {
 
 export interface OraclePayload {
   price: u128;
+  timestamp: u64;
   /**
  * Round identifier that should match `Round.start_ledger`
  */
 round_id: u32;
-  timestamp: u64;
 }
 
 
