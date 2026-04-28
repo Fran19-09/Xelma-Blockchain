@@ -41,10 +41,10 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Run cargo test
-        run: cargo test --workspace --verbose
+        run: cargo test --workspace --verbose --locked
 
       - name: Run cargo clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   contract-build:
     name: Contract Build
@@ -73,7 +73,7 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Build contract (release)
-        run: cargo build --target wasm32-unknown-unknown --release --package xelma-contract
+        run: cargo build --target wasm32-unknown-unknown --release --package xelma-contract --locked
 
       - name: Check WASM artifact exists
         run: |

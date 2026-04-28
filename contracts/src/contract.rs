@@ -546,6 +546,12 @@ impl VirtualTokenContract {
 
         // Verify data freshness (max 300 seconds / 5 minutes old)
         let current_time = env.ledger().timestamp();
+        
+        // Reject future timestamps to prevent time-skew manipulation
+        if payload.timestamp > current_time {
+            return Err(ContractError::FutureOracleData);
+        }
+
         if current_time > payload.timestamp + 300 {
             return Err(ContractError::StaleOracleData);
         }

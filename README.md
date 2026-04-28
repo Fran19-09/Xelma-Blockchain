@@ -1,9 +1,9 @@
 # Xelma - Decentralized XLM Price Prediction Market
 
 [![CI](https://github.com/TevaLabs/Xelma-Blockchain/actions/workflows/ci.yml/badge.svg)](https://github.com/TevaLabs/Xelma-Blockchain/actions/workflows/ci.yml)
-[![Rust](https://img.shields.io/badge/Rust-1.92.0-orange.svg)](https://www.rust-lang.org/)
-[![Soroban](https://img.shields.io/badge/Soroban-23.0.1-blue.svg)](https://soroban.stellar.org/)
-[![Tests](https://img.shields.io/badge/tests-96%2F96%20passing-brightgreen.svg)]()
+[![Rust](https://img.shields.io/badge/Rust-1.94.0-orange.svg)](https://www.rust-lang.org/)
+[![Soroban](https://img.shields.io/badge/Soroban-23.5.3-blue.svg)](https://soroban.stellar.org/)
+[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > A trustless, transparent, and decentralized prediction market for XLM price movements built on Stellar blockchain using Soroban smart contracts.
@@ -123,10 +123,10 @@ Unlike traditional prediction markets, Xelma is:
 ## 🛠️ Technical Stack
 
 ### Smart Contract (Rust + Soroban)
-- **Language**: Rust 1.92.0
-- **Framework**: Soroban SDK 23.0.1
+- **Language**: Rust 1.94.0
+- **Framework**: Soroban SDK 23.5.3
 - **Blockchain**: Stellar (Testnet)
-- **Testing**: 96/96 tests passing
+- **Testing**: Full suite passing (run `cargo test --workspace` to verify)
 - **Canonical crate**: `xelma-contract` (used by CI, build, and artifact paths)
 
 ### Key Features:
@@ -177,7 +177,7 @@ Use `is_paused()` to verify the current contract state before attempting recover
 
 ### TypeScript Bindings
 - **Language**: TypeScript 5.6.2
-- **SDK**: Stellar SDK v13
+- **SDK**: Stellar SDK 14.1.1
 - **Package**: `@tevalabs/xelma-bindings`
 - **Types**: Fully typed contract interface
 
@@ -193,7 +193,7 @@ Xelma-Blockchain/
 │   │   ├── contract.rs       # Core contract implementation (~820 lines)
 │   │   ├── errors.rs         # Custom error types (20 variants)
 │   │   ├── types.rs          # Contract types and storage keys
-│   │   └── tests/            # Test suite (80 tests)
+│   │   └── tests/            # Test suite
 │   │       ├── mod.rs
 │   │       ├── betting.rs
 │   │       ├── edge_cases.rs
@@ -230,9 +230,9 @@ Xelma-Blockchain/
 
 ### Prerequisites
 
-- Rust 1.92.0+
+- Rust 1.94.0+
 - Stellar CLI (soroban-cli)
-- Node.js 18+ (for bindings)
+- Node.js 20+ (for bindings)
 
 ### 1. Clone Repository
 
@@ -251,8 +251,8 @@ cargo build --target wasm32-unknown-unknown --release
 ### 3. Run Tests
 
 ```bash
-cargo test
-# Output: 80 passed; 0 failed
+cargo test --workspace --locked
+# All tests should pass
 ```
 
 ### 4. Generate & Build Bindings
@@ -308,7 +308,7 @@ We take security seriously. The contract has undergone comprehensive hardening:
 - ✅ **Input Validation** - All parameters validated (amount > 0, round active, etc.)
 - ✅ **No Reentrancy Risk** - CEI pattern (Checks-Effects-Interactions)
 - ✅ **State Consistency** - Prevents double betting, validates round lifecycle
-- ✅ **80/80 Tests Passing** - Full coverage of edge cases and attack vectors
+- ✅ **Full Test Suite Passing** - Comprehensive coverage of edge cases and attack vectors
 
 ### Audited:
 - [SECURITY_REVIEW.md](./SECURITY_REVIEW.md) - Complete security analysis
@@ -537,7 +537,7 @@ async function watchForNewRounds(contractId: string) {
 - [x] Up/Down betting mechanism with proportional payouts
 - [x] Precision prediction mechanism (closest guess wins)
 - [x] User statistics tracking
-- [x] Comprehensive testing (80/80)
+- [x] Comprehensive testing (full suite passing)
 - [x] Security hardening
 - [x] TypeScript bindings
 
@@ -675,7 +675,7 @@ Check issues labeled [`good-first-issue`](https://github.com/TevaLabs/Xelma-Bloc
 - **[Smart Contract](./contracts/src/)** - Modular Rust code (contract, types, errors)
 - **[Security Review](./SECURITY_REVIEW.md)** - Security analysis and best practices
 - **[Bindings Guide](./bindings/README.md)** - TypeScript integration guide
-- **[Test Suite](./contracts/src/tests/)** - Comprehensive test examples (80 tests)
+- **[Test Suite](./contracts/src/tests/)** - Comprehensive test examples
 
 ---
 

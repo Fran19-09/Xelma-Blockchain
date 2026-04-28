@@ -53,4 +53,6 @@ pub enum ContractError {
     ContractPaused = 22,
     /// One or more window values exceed configured maximum bounds
     WindowOutOfRange = 23,
+    /// Oracle payload timestamp is in the future
+    FutureOracleData = 24,
 }
