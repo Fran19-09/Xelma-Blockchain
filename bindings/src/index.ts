@@ -124,7 +124,11 @@ export const ContractError = {
   /**
    * Contract is paused for emergency recovery
    */
-  22: {message:"ContractPaused"}
+  22: {message:"ContractPaused"},
+  /**
+   * One or more window values exceed configured maximum bounds
+   */
+  23: {message:"WindowOutOfRange"}
 }
 
 /**
