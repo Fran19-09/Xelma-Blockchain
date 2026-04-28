@@ -113,11 +113,7 @@ impl VirtualTokenContract {
 
         admin.require_auth();
         Self::_ensure_not_paused(&env)?;
-
-        // Prevent overwriting an already active round
-        if env.storage().persistent().has(&DataKey::ActiveRound) {
-            return Err(ContractError::RoundAlreadyActive);
-        }
+        Self::assert_no_active_round(&env)?;
 
         // Get configured windows (with defaults)
         let bet_ledgers: u32 = env
@@ -931,6 +927,21 @@ impl VirtualTokenContract {
             return Err(ContractError::ContractPaused);
         }
 
+        Ok(())
+    }
+
+    /// Enforces the single-active-round invariant.
+    ///
+    /// Call this at the top of any entrypoint that would create a new round,
+    /// before any storage writes. Returns `ContractError::RoundAlreadyActive`
+    /// if an active round is found, leaving all state unchanged.
+    ///
+    /// Invariant: at most one round may be in the Active state at any time.
+    /// Rounds transition Active → Settled when `resolve_round` is called.
+    pub(crate) fn assert_no_active_round(env: &Env) -> Result<(), ContractError> {
+        if env.storage().persistent().has(&DataKey::ActiveRound) {
+            return Err(ContractError::RoundAlreadyActive);
+        }
         Ok(())
     }
 }
