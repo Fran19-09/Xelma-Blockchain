@@ -2,6 +2,7 @@
 
 mod betting;
 mod edge_cases;
+mod guard_tests;
 mod initialization;
 mod lifecycle;
 mod mode_tests;
