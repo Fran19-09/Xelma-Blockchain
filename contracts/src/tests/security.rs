@@ -94,3 +94,33 @@ fn test_resolve_round_valid_payload() {
     client.resolve_round(&payload);
     assert_eq!(client.get_active_round(), None);
 }
+
+#[test]
+fn test_resolve_round_future_timestamp() {
+    let env = Env::default();
+    let contract_id = env.register(VirtualTokenContract, ());
+    let client = VirtualTokenContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    env.mock_all_auths();
+
+    client.initialize(&admin, &oracle);
+    client.create_round(&1_0000000, &None);
+
+    // Current ledger time is 1000
+    env.ledger().with_mut(|li| {
+        li.timestamp = 1000;
+        li.sequence_number = 12;
+    });
+
+    // Submit payload with timestamp 1001 (future)
+    let payload = OraclePayload {
+        price: 1_5000000,
+        timestamp: 1001,
+        round_id: 0,
+    };
+
+    let result = client.try_resolve_round(&payload);
+    assert_eq!(result, Err(Ok(ContractError::FutureOracleData)));
+}
