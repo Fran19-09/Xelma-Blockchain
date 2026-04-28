@@ -689,7 +689,13 @@ impl VirtualTokenContract {
             }
         }
 
-        // Distribute winnings to winner(s)
+        // Distribute winnings to winner(s).
+        // Remainder policy: `predictions_map` is a `Map<Address, PrecisionPrediction>`, which
+        // Soroban keeps sorted by XDR-encoded key bytes. `winners` is built by iterating that
+        // map in stable key order, so index 0 always refers to the lexicographically-lowest
+        // Address. Any integer remainder from the even split is assigned exclusively to that
+        // first winner, making the distribution fully deterministic and reproducible for a
+        // given set of participants regardless of insertion order or execution environment.
         if !winners.is_empty() && total_pot > 0 {
             let winner_count = winners.len() as i128;
             let payout_per_winner = total_pot / winner_count;
@@ -701,7 +707,7 @@ impl VirtualTokenContract {
                     let key = DataKey::PendingWinnings(winner.user.clone());
                     let existing_pending: i128 = env.storage().persistent().get(&key).unwrap_or(0);
 
-                    // First winner gets the remainder (if any)
+                    // First winner (lowest XDR-ordered Address) absorbs the remainder.
                     let payout = if i == 0 {
                         payout_per_winner
                             .checked_add(remainder)
