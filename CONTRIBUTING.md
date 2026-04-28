@@ -17,6 +17,7 @@ Thanks for improving Xelma. This document explains the expected workflow for con
    - `cargo clippy --workspace --all-targets -- -D warnings`
    - `cargo fmt --all -- --check`
    - `cd bindings && npm ci && npm run build`
+   - `cd bindings && npm run test:parity` (ABI drift check; mirrors the CI `bindings-test` job)
 
 ## Canonical Contract Crate
 
